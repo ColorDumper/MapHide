@@ -1,0 +1,4 @@
+obsws-python==1.8.0
+Pillow==12.2.0
+pystray==0.19.5
+pyinstaller==6.19.0

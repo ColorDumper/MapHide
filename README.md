@@ -2,7 +2,7 @@
 
 MapHide is a lightweight OBS map hider built for dual-PC live streaming setups.
 
-It is designed primarily for games like Rust, but it can also work for other games that use a similar map system, such as DayZ, as long as you can hide/show the correct OBS source.
+It is designed primarily for games like Rust, and it can also work for other games that use a similar map system. While it can function on a single-PC setup through OBS WebSocket, dual-PC streaming is where it is most useful.
 
 ## Features
 
@@ -10,11 +10,10 @@ It is designed primarily for games like Rust, but it can also work for other gam
 - Built for dual-PC OBS workflows
 - Hides and shows an OBS source while a hotkey is held
 - Follows the current OBS program scene automatically
-- Works across scenes when the same source name exists in each scene
 - Tray support with hide-to-tray behavior
 - Configurable hotkey
 - Dark mode UI
-- Saves settings automatically to the user's AppData folder
+- Saves settings to the user's AppData folder
 
 ## Requirements
 
@@ -26,12 +25,14 @@ It is designed primarily for games like Rust, but it can also work for other gam
 
 1. Open OBS Studio.
 2. Make sure OBS WebSocket is enabled.
-3. In OBS, create the source you want MapHide to control.
+3. In OBS, create or add the source you want MapHide to control.
 4. Use the same source name in every scene where you want MapHide to work.
 5. Open MapHide and click `Settings >`.
-6. Enter your OBS host, port, password, source name, and hotkey.
+6. Enter your OBS host, port, password, source name, and select a hotkey.
 7. Click `Save Settings`.
 8. Click `Start`.
+
+If you need overlay assets, you can create your own or use community-made overlays. One useful source is [Sendox on YouTube](https://www.youtube.com/@sendox).
 
 ## How It Works
 
@@ -39,7 +40,7 @@ It is designed primarily for games like Rust, but it can also work for other gam
 - It checks the current program scene automatically.
 - It looks for the configured source name in the active scene.
 - While the selected hotkey is held, the source is shown.
-- When the hotkey is released, the source is hidden.
+- When the hotkey is released, the source is hidden after a short delay to prevent brief map flashes during gameplay.
 
 ## Config Location
 
@@ -56,6 +57,8 @@ Example:
 - The OBS host, port, and password are hidden by default in the UI.
 - If OBS is closed after MapHide has connected, MapHide will try to reconnect automatically.
 - If the initial OBS settings are incorrect, MapHide will wait for you to fix the settings and save again.
+- Windows may show a SmartScreen or "Unknown publisher" warning when opening the app because this build is not code-signed.
+- MapHide can work on a single-PC setup, but it is primarily built for dual-PC streaming. For a single-PC workflow, an OBS script may be a simpler option depending on your setup.
 
 ## Troubleshooting
 
@@ -83,7 +86,7 @@ This is normal behavior. MapHide hides to the system tray instead of fully closi
 
 ## Version
 
-Current release: `v0.1.0`
+Current release: `v0.1.1`
 
 ## Credits
 

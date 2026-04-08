@@ -51,7 +51,7 @@ logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
 APP_DIR = Path(__file__).resolve().parent
 APP_NAME = "MapHide"
-APP_VERSION = "v0.1.0"
+APP_VERSION = "v0.1.1"
 CONFIG_DIR = Path(os.getenv("APPDATA", APP_DIR)) / APP_NAME
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LEGACY_CONFIG_PATH = APP_DIR / "config.json"
@@ -62,6 +62,7 @@ APP_USER_MODEL_ID = "MapHide.App"
 TOGGLE_KEY_VK = 0x47
 POLL_INTERVAL = 0.005
 DEBOUNCE_MS = 50
+HIDE_DELAY_MS = 160
 SCENE_REFRESH_INTERVAL = 0.25
 RECONNECT_DELAY = 2.0
 WINDOW_TITLE = "MapHide"
@@ -311,6 +312,7 @@ class MapHideService:
         item_id = None
         active_scene_name = None
         last_action_time = datetime.min
+        hide_requested_at = None
         last_scene_refresh = datetime.min
         announced_connection_failure = False
         final_status_message = "MapHide stopped."
@@ -326,6 +328,7 @@ class MapHideService:
                         item_id = None
                         active_scene_name = None
                         last_scene_refresh = datetime.min
+                        hide_requested_at = None
                         announced_connection_failure = False
                         had_successful_connection = True
                         self._emit("status", "Connected to OBS.")
@@ -348,6 +351,7 @@ class MapHideService:
                             active_scene_name = latest_scene_name
                             item_id = find_scene_item_id_raw(client, active_scene_name, cfg.scene_item_name)
                             overlay_visible = False
+                            hide_requested_at = None
                             if item_id is None:
                                 self._emit(
                                     "status",
@@ -366,6 +370,7 @@ class MapHideService:
                     down = is_key_down(self.vk_code)
 
                     if down and not overlay_visible and item_id is not None:
+                        hide_requested_at = None
                         if (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS):
                             set_scene_item_enabled_raw(client, active_scene_name, item_id, True)
                             overlay_visible = True
@@ -373,11 +378,19 @@ class MapHideService:
                             self._emit("overlay", "Overlay shown.", visible=True)
 
                     elif not down and overlay_visible and item_id is not None:
-                        if (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS):
+                        if hide_requested_at is None:
+                            hide_requested_at = now
+                        if (
+                            (now - hide_requested_at) >= timedelta(milliseconds=HIDE_DELAY_MS)
+                            and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
+                        ):
                             set_scene_item_enabled_raw(client, active_scene_name, item_id, False)
                             overlay_visible = False
+                            hide_requested_at = None
                             last_action_time = now
                             self._emit("overlay", "Overlay hidden.", visible=False)
+                    else:
+                        hide_requested_at = None
 
                     time.sleep(POLL_INTERVAL)
                 except Exception as exc:
@@ -390,6 +403,7 @@ class MapHideService:
                     overlay_visible = False
                     item_id = None
                     active_scene_name = None
+                    hide_requested_at = None
                     time.sleep(RECONNECT_DELAY)
         finally:
             if client is not None and item_id is not None and active_scene_name is not None:
@@ -944,8 +958,13 @@ class MapHideApp:
 
     def show_window(self):
         self.is_hidden_to_tray = False
-        if self.root.state() == "withdrawn":
+        current_state = self.root.state()
+        if current_state == "withdrawn":
             self.root.deiconify()
+        elif current_state == "iconic":
+            self.root.state("normal")
+        else:
+            self.root.state("normal")
         self.root.after(0, self.root.lift)
         self.root.after(0, self.root.focus_force)
 

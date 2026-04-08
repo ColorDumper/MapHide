@@ -8,7 +8,7 @@ It is designed primarily for games like Rust, and it can also work for other gam
 
 Watch MapHide in action here:
 
-[MapHide Demo Video](https://www.youtube.com/watch?v=zBLLD3BhpmE)
+[![MapHide Demo Video](https://img.youtube.com/vi/zBLLD3BhpmE/maxresdefault.jpg)](https://www.youtube.com/watch?v=zBLLD3BhpmE)
 
 ## Features
 

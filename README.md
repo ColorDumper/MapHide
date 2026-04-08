@@ -4,6 +4,12 @@ MapHide is a lightweight OBS map hider built for dual-PC live streaming setups.
 
 It is designed primarily for games like Rust, and it can also work for other games that use a similar map system. While it can function on a single-PC setup through OBS WebSocket, dual-PC streaming is where it is most useful.
 
+## Demo
+
+Watch MapHide in action here:
+
+[MapHide Demo Video](https://www.youtube.com/watch?v=zBLLD3BhpmE)
+
 ## Features
 
 - Lightweight desktop app

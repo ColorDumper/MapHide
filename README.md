@@ -2,7 +2,7 @@
 
 MapHide is a lightweight OBS map hider built mainly for dual-PC live streaming setups.
 
-It was created for games like Rust, but it can work with other games that use a similar map system. MapHide runs on the gaming PC, listens for your selected keybind, then tells OBS on the streaming PC to show or hide your map-hiding overlay source.
+It started as a Rust map hider, but it has grown into a flexible map-hiding tool for any game where streamers need to cover a map, GPS, or similar sensitive screen element. MapHide runs on the gaming PC, listens for your selected keybind, then tells OBS on the streaming PC to show or hide your map-hiding overlay source.
 
 ## Demo
 
@@ -22,12 +22,13 @@ MapHide is usually **not** meant to run on the streaming PC in a dual-PC setup. 
 ## Features
 
 - Lightweight Windows desktop app
+- Flexible map/privacy overlay control for many games
 - Built for dual-PC OBS workflows
 - Works through OBS WebSocket
 - Automatically follows the current OBS program scene
 - Controls the same source name across multiple OBS scenes
 - Hold mode for games where the map is only open while holding a key
-- Toggle mode for games where one key opens the map and another key closes it
+- Toggle mode for games where the map opens and closes with key presses
 - Configurable hide delay slider to reduce brief map flashes during close animations
 - Configurable keybinds
 - Auto-connect on startup option
@@ -130,7 +131,7 @@ On the **gaming PC**:
    - **Source Name**: the exact OBS source name from the streaming PC
 4. Choose your keybind mode:
    - Use **hold mode** if your game map is open only while holding a key.
-   - Use **toggle mode** if your game map opens with one key and closes with another key.
+   - Use **toggle mode** if your game map opens and closes with key presses.
 5. Adjust the hide delay if needed.
 6. Click `Save Settings`.
 7. Click `Start`.
@@ -165,10 +166,17 @@ Example:
 - Press `M` to show the overlay
 - Press `Shift + M` to hide the overlay
 
+You can also use the same key for both show and hide:
+
+- Press `M` once to show the overlay
+- Press `M` again to hide the overlay
+
 Toggle mode uses two keybinds:
 
 - **Show key**: the key that opens the map and shows the overlay
 - **Hide key**: the key or shortcut that closes the map and hides the overlay
+
+If the show key and hide key are the same, MapHide treats each new key press as a toggle.
 
 ## Hide Delay
 
@@ -250,7 +258,7 @@ This is normal behavior. MapHide hides to the system tray instead of fully closi
 
 ## Version
 
-Current release: `v0.2.0`
+Current release: `v0.2.1`
 
 ## Credits
 

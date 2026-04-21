@@ -51,11 +51,14 @@ logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
 APP_DIR = Path(__file__).resolve().parent
 APP_NAME = "MapHide"
-APP_VERSION = "v0.2.0"
+APP_VERSION = "v0.2.1"
 CONFIG_DIR = Path(os.getenv("APPDATA", APP_DIR)) / APP_NAME
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LEGACY_CONFIG_PATH = APP_DIR / "config.json"
 ICON_ICO_PATH = APP_DIR / "MapHide.ico"
+ICON_RUNTIME_PNG_PATH = APP_DIR / "assets" / "MapHide_Icon.png"
+ICON_WINDOW_PNG_PATH = APP_DIR / "assets" / "MapHide_Icon_32.png"
+ICON_TRAY_PNG_PATH = APP_DIR / "assets" / "MapHide_Icon_64.png"
 ICON_PNG_PATH = APP_DIR / "MapHide_Master.png"
 WATERMARK_PNG_PATH = APP_DIR / "PaintTwo.png"
 APP_USER_MODEL_ID = "MapHide.App"
@@ -72,8 +75,11 @@ HELP_AREA_WIDTH = 340
 HELP_AREA_HEIGHT = 44
 WINDOW_EXTRA_WIDTH = 32
 WINDOW_EXTRA_HEIGHT = 56
+WATERMARK_MAX_SIZE = (64, 40)
 SCENE_REFRESH_INTERVAL = 0.25
 RECONNECT_DELAY = 2.0
+SHOW_KEY_HELP = "Show key supports A-Z."
+HIDE_KEY_HELP = "Hide key supports A-Z, Shift, or Shift+A-Z."
 WINDOW_TITLE = "MapHide"
 COLOR_BG = "#12161d"
 COLOR_PANEL = "#1b2330"
@@ -474,8 +480,20 @@ class MapHideService:
 
                     if self.toggle_mode:
                         hide_key_down = is_hotkey_down(self.hide_vk_codes)
+                        same_key_toggle = self.show_vk_codes == self.hide_vk_codes
 
-                        if show_key_down and not show_key_was_down and item_id is not None:
+                        if same_key_toggle:
+                            if show_key_down and not show_key_was_down and item_id is not None:
+                                if overlay_visible:
+                                    hide_requested_at = now
+                                else:
+                                    hide_requested_at = None
+                                    if (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS):
+                                        set_scene_item_enabled_raw(client, active_scene_name, item_id, True)
+                                        overlay_visible = True
+                                        last_action_time = now
+                                        self._emit("overlay", "Overlay shown.", visible=True)
+                        elif show_key_down and not show_key_was_down and item_id is not None:
                             hide_requested_at = None
                             if (
                                 not overlay_visible
@@ -486,7 +504,13 @@ class MapHideService:
                                 last_action_time = now
                                 self._emit("overlay", "Overlay shown.", visible=True)
 
-                        if hide_key_down and not hide_key_was_down and overlay_visible and item_id is not None:
+                        if (
+                            not same_key_toggle
+                            and hide_key_down
+                            and not hide_key_was_down
+                            and overlay_visible
+                            and item_id is not None
+                        ):
                             hide_requested_at = now
 
                         if (
@@ -937,8 +961,14 @@ class MapHideApp:
         except Exception:
             pass
         try:
-            if ICON_PNG_PATH.exists():
-                self.window_icon_image = tk.PhotoImage(file=str(ICON_PNG_PATH))
+            if ICON_WINDOW_PNG_PATH.exists():
+                icon_photo_path = ICON_WINDOW_PNG_PATH
+            elif ICON_RUNTIME_PNG_PATH.exists():
+                icon_photo_path = ICON_RUNTIME_PNG_PATH
+            else:
+                icon_photo_path = ICON_PNG_PATH
+            if icon_photo_path.exists():
+                self.window_icon_image = tk.PhotoImage(file=str(icon_photo_path))
                 self.root.iconphoto(True, self.window_icon_image)
         except Exception:
             pass
@@ -950,7 +980,10 @@ class MapHideApp:
             return
         try:
             watermark = Image.open(WATERMARK_PNG_PATH).convert("RGBA")
-            watermark.thumbnail((40, 40), Image.Resampling.LANCZOS)
+            visible_bounds = watermark.getbbox()
+            if visible_bounds is not None:
+                watermark = watermark.crop(visible_bounds)
+            watermark.thumbnail(WATERMARK_MAX_SIZE, Image.Resampling.LANCZOS)
             self.footer_brand_image = ImageTk.PhotoImage(watermark)
             self.footer_brand.configure(image=self.footer_brand_image, text="")
         except Exception:
@@ -1034,12 +1067,10 @@ class MapHideApp:
         if not scene_item_name:
             raise ValueError("Overlay Source is required.")
         if not is_valid_show_hotkey(hotkey):
-            raise ValueError("Show key must be A-Z.")
+            raise ValueError(SHOW_KEY_HELP)
         if toggle_mode:
             if not is_valid_hide_hotkey(hide_hotkey):
-                raise ValueError("Select a valid hide key.")
-            if hide_hotkey == hotkey:
-                raise ValueError("Show key and hide key must be different in toggle mode.")
+                raise ValueError(HIDE_KEY_HELP)
 
         try:
             port = int(port_text)
@@ -1242,9 +1273,9 @@ class MapHideApp:
         button = self.hotkey_button if target == "show" else self.hide_hotkey_button
         button.configure(text="Press key...")
         if target == "show":
-            self.status_var.set("Press and release A-Z.")
+            self.status_var.set(SHOW_KEY_HELP)
         else:
-            self.status_var.set("Press A-Z, SHIFT, or SHIFT plus A-Z.")
+            self.status_var.set(HIDE_KEY_HELP)
         try:
             self.root.focus_force()
         except Exception:
@@ -1268,20 +1299,20 @@ class MapHideApp:
         hotkey = self._hotkey_from_event(event)
         if not hotkey:
             if self.key_capture_target == "hide":
-                self.status_var.set("Hide key supports A-Z, SHIFT, or SHIFT+A-Z.")
+                self.status_var.set(HIDE_KEY_HELP)
             else:
-                self.status_var.set("Show key supports A-Z.")
+                self.status_var.set(SHOW_KEY_HELP)
             self._stop_key_capture()
             return "break"
         if self.key_capture_target == "show":
             if not is_valid_show_hotkey(hotkey):
-                self.status_var.set("Show key must be A-Z.")
+                self.status_var.set(SHOW_KEY_HELP)
                 self._stop_key_capture()
                 return "break"
             self.hotkey_var.set(hotkey)
         elif self.key_capture_target == "hide":
             if not is_valid_hide_hotkey(hotkey):
-                self.status_var.set("Hide key supports A-Z, SHIFT, or SHIFT+A-Z.")
+                self.status_var.set(HIDE_KEY_HELP)
                 self._stop_key_capture()
                 return "break"
             self.hide_hotkey_var.set(hotkey)
@@ -1378,9 +1409,15 @@ class MapHideApp:
         self.tray_thread.start()
 
     def _create_tray_image(self):
-        if ICON_PNG_PATH.exists():
+        if ICON_TRAY_PNG_PATH.exists():
+            icon_image_path = ICON_TRAY_PNG_PATH
+        elif ICON_RUNTIME_PNG_PATH.exists():
+            icon_image_path = ICON_RUNTIME_PNG_PATH
+        else:
+            icon_image_path = ICON_PNG_PATH
+        if icon_image_path.exists():
             try:
-                return Image.open(ICON_PNG_PATH).convert("RGBA")
+                return Image.open(icon_image_path).convert("RGBA")
             except Exception:
                 pass
 

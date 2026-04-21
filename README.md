@@ -44,9 +44,9 @@ MapHide keeps keybind support intentionally simple for reliability.
 
 - **Hold mode show key**: `A-Z`
 - **Toggle mode show key**: `A-Z`
-- **Toggle mode hide key**: `A-Z`, `Shift`, or `Shift + A-Z`
+- **Toggle mode hide key**: `A-Z`, `Esc`, `Shift`, or `Shift + A-Z`
 
-The hide key supports `Shift + letter` because some games use one key to open the map and a different key or shortcut to close it.
+The hide key supports `Esc` and `Shift + letter` because some games use one key to open the map and a different key or shortcut to close it.
 
 ## Requirements
 
@@ -166,6 +166,11 @@ Example:
 - Press `M` to show the overlay
 - Press `Shift + M` to hide the overlay
 
+Another common setup:
+
+- Press `M` to show the overlay
+- Press `Esc` to hide the overlay
+
 You can also use the same key for both show and hide:
 
 - Press `M` once to show the overlay
@@ -258,7 +263,7 @@ This is normal behavior. MapHide hides to the system tray instead of fully closi
 
 ## Version
 
-Current release: `v0.2.1`
+Current release: `v0.2.2`
 
 ## Credits
 

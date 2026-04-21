@@ -51,7 +51,7 @@ logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
 APP_DIR = Path(__file__).resolve().parent
 APP_NAME = "MapHide"
-APP_VERSION = "v0.2.1"
+APP_VERSION = "v0.2.2"
 CONFIG_DIR = Path(os.getenv("APPDATA", APP_DIR)) / APP_NAME
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LEGACY_CONFIG_PATH = APP_DIR / "config.json"
@@ -79,7 +79,7 @@ WATERMARK_MAX_SIZE = (64, 40)
 SCENE_REFRESH_INTERVAL = 0.25
 RECONNECT_DELAY = 2.0
 SHOW_KEY_HELP = "Show key supports A-Z."
-HIDE_KEY_HELP = "Hide key supports A-Z, Shift, or Shift+A-Z."
+HIDE_KEY_HELP = "Hide key supports A-Z, Esc, Shift, or Shift+A-Z."
 WINDOW_TITLE = "MapHide"
 COLOR_BG = "#12161d"
 COLOR_PANEL = "#1b2330"
@@ -93,14 +93,19 @@ COLOR_INPUT = "#111923"
 COLOR_DISABLED = "#5a6472"
 HOTKEY_OPTIONS = [
     *[(chr(code), code) for code in range(ord("A"), ord("Z") + 1)],
+    ("ESC", 0x1B),
     ("SHIFT", 0x10),
 ]
 HOTKEY_TO_VK = dict(HOTKEY_OPTIONS)
 SHOW_KEY_LABELS = tuple(chr(code) for code in range(ord("A"), ord("Z") + 1))
+STANDALONE_HIDE_KEY_LABELS = ("ESC", "SHIFT")
 MODIFIER_LABELS = ("SHIFT",)
 MODIFIER_KEYSYMS = {
     "SHIFT_L": "SHIFT",
     "SHIFT_R": "SHIFT",
+}
+SPECIAL_KEYSYMS = {
+    "ESCAPE": "ESC",
 }
 EVENT_STATE_MODIFIERS = (
     ("SHIFT", 0x0001),
@@ -304,7 +309,7 @@ def hotkey_labels(hotkey):
 def is_valid_hide_hotkey(hotkey):
     labels = hotkey_labels(hotkey)
     if len(labels) == 1:
-        return labels[0] in SHOW_KEY_LABELS or labels[0] == "SHIFT"
+        return labels[0] in SHOW_KEY_LABELS or labels[0] in STANDALONE_HIDE_KEY_LABELS
     if len(labels) == 2:
         return labels[0] == "SHIFT" and labels[1] in SHOW_KEY_LABELS
     return False
@@ -319,6 +324,8 @@ def normalize_event_key(keysym):
     key = str(keysym).strip().upper()
     if key in MODIFIER_KEYSYMS:
         return MODIFIER_KEYSYMS[key]
+    if key in SPECIAL_KEYSYMS:
+        return SPECIAL_KEYSYMS[key]
     if len(key) == 1 and (key.isalpha() or key.isdigit()):
         return key if key in SHOW_KEY_LABELS else None
     return None

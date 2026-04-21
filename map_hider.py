@@ -51,7 +51,7 @@ logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
 APP_DIR = Path(__file__).resolve().parent
 APP_NAME = "MapHide"
-APP_VERSION = "v0.1.1"
+APP_VERSION = "v0.2.0"
 CONFIG_DIR = Path(os.getenv("APPDATA", APP_DIR)) / APP_NAME
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LEGACY_CONFIG_PATH = APP_DIR / "config.json"
@@ -62,7 +62,16 @@ APP_USER_MODEL_ID = "MapHide.App"
 TOGGLE_KEY_VK = 0x47
 POLL_INTERVAL = 0.005
 DEBOUNCE_MS = 50
-HIDE_DELAY_MS = 160
+DEFAULT_HIDE_DELAY_MS = 120
+MIN_HIDE_DELAY_MS = 0
+MAX_HIDE_DELAY_MS = 400
+KEY_BUTTON_WIDTH = 16
+STATUS_AREA_WIDTH = 300
+STATUS_AREA_HEIGHT = 72
+HELP_AREA_WIDTH = 340
+HELP_AREA_HEIGHT = 44
+WINDOW_EXTRA_WIDTH = 32
+WINDOW_EXTRA_HEIGHT = 56
 SCENE_REFRESH_INTERVAL = 0.25
 RECONNECT_DELAY = 2.0
 WINDOW_TITLE = "MapHide"
@@ -78,11 +87,18 @@ COLOR_INPUT = "#111923"
 COLOR_DISABLED = "#5a6472"
 HOTKEY_OPTIONS = [
     *[(chr(code), code) for code in range(ord("A"), ord("Z") + 1)],
-    *[(str(number), ord(str(number))) for number in range(0, 10)],
-    *[(f"F{number}", 0x6F + number) for number in range(1, 13)],
+    ("SHIFT", 0x10),
 ]
-HOTKEY_LABELS = [label for label, _ in HOTKEY_OPTIONS]
 HOTKEY_TO_VK = dict(HOTKEY_OPTIONS)
+SHOW_KEY_LABELS = tuple(chr(code) for code in range(ord("A"), ord("Z") + 1))
+MODIFIER_LABELS = ("SHIFT",)
+MODIFIER_KEYSYMS = {
+    "SHIFT_L": "SHIFT",
+    "SHIFT_R": "SHIFT",
+}
+EVENT_STATE_MODIFIERS = (
+    ("SHIFT", 0x0001),
+)
 
 
 @dataclass
@@ -93,6 +109,9 @@ class AppConfig:
     scene_item_name: str
     auto_connect: bool = False
     hotkey: str = "G"
+    toggle_mode: bool = False
+    hide_hotkey: str = "H"
+    hide_delay_ms: int = DEFAULT_HIDE_DELAY_MS
 
     @classmethod
     def from_dict(cls, data):
@@ -107,6 +126,9 @@ class AppConfig:
             scene_item_name=str(data["scene_item_name"]).strip(),
             auto_connect=bool(data.get("auto_connect", False)),
             hotkey=str(data.get("hotkey", "G")).upper(),
+            toggle_mode=bool(data.get("toggle_mode", False)),
+            hide_hotkey=str(data.get("hide_hotkey", "H")).upper(),
+            hide_delay_ms=int(data.get("hide_delay_ms", DEFAULT_HIDE_DELAY_MS)),
         )
 
     def to_dict(self):
@@ -117,10 +139,16 @@ class AppConfig:
             "scene_item_name": self.scene_item_name,
             "auto_connect": self.auto_connect,
             "hotkey": self.hotkey,
+            "toggle_mode": self.toggle_mode,
+            "hide_hotkey": self.hide_hotkey,
+            "hide_delay_ms": self.hide_delay_ms,
         }
 
     def hotkey_vk_code(self):
-        return HOTKEY_TO_VK.get(self.hotkey, TOGGLE_KEY_VK)
+        return hotkey_to_vk_codes(self.hotkey, fallback=[TOGGLE_KEY_VK])
+
+    def hide_hotkey_vk_code(self):
+        return hotkey_to_vk_codes(self.hide_hotkey, fallback=[HOTKEY_TO_VK["H"]])
 
 
 def default_config():
@@ -131,6 +159,9 @@ def default_config():
         scene_item_name="",
         auto_connect=False,
         hotkey="G",
+        toggle_mode=False,
+        hide_hotkey="H",
+        hide_delay_ms=DEFAULT_HIDE_DELAY_MS,
     )
 
 
@@ -243,9 +274,57 @@ def set_scene_item_enabled_raw(client, scene_name, scene_item_id, enabled):
     return client.send("SetSceneItemEnabled", payload, raw=True)
 
 
+def normalize_hotkey_label(value):
+    label = str(value).strip().upper()
+    return label
+
+
+def hotkey_to_vk_codes(hotkey, fallback=None):
+    labels = [normalize_hotkey_label(part) for part in str(hotkey).split("+") if part.strip()]
+    codes = []
+    for label in labels:
+        code = HOTKEY_TO_VK.get(label)
+        if code is None:
+            return fallback or []
+        if code not in codes:
+            codes.append(code)
+    return codes or (fallback or [])
+
+
+def hotkey_labels(hotkey):
+    return [normalize_hotkey_label(part) for part in str(hotkey).split("+") if part.strip()]
+
+
+def is_valid_hide_hotkey(hotkey):
+    labels = hotkey_labels(hotkey)
+    if len(labels) == 1:
+        return labels[0] in SHOW_KEY_LABELS or labels[0] == "SHIFT"
+    if len(labels) == 2:
+        return labels[0] == "SHIFT" and labels[1] in SHOW_KEY_LABELS
+    return False
+
+
+def is_valid_show_hotkey(hotkey):
+    labels = hotkey_labels(hotkey)
+    return len(labels) == 1 and labels[0] in SHOW_KEY_LABELS
+
+
+def normalize_event_key(keysym):
+    key = str(keysym).strip().upper()
+    if key in MODIFIER_KEYSYMS:
+        return MODIFIER_KEYSYMS[key]
+    if len(key) == 1 and (key.isalpha() or key.isdigit()):
+        return key if key in SHOW_KEY_LABELS else None
+    return None
+
+
 def is_key_down(vk_code):
     state = ctypes.windll.user32.GetAsyncKeyState(vk_code)
     return (state & 0x8000) != 0
+
+
+def is_hotkey_down(vk_codes):
+    return bool(vk_codes) and all(is_key_down(code) for code in vk_codes)
 
 
 def human_ts():
@@ -260,9 +339,19 @@ def set_windows_app_id():
 
 
 class MapHideService:
-    def __init__(self, vk_code=TOGGLE_KEY_VK, hotkey_label="G"):
-        self.vk_code = vk_code
-        self.hotkey_label = hotkey_label
+    def __init__(
+        self,
+        show_vk_codes=None,
+        show_hotkey_label="G",
+        toggle_mode=False,
+        hide_vk_codes=None,
+        hide_hotkey_label="H",
+    ):
+        self.show_vk_codes = show_vk_codes or [TOGGLE_KEY_VK]
+        self.show_hotkey_label = show_hotkey_label
+        self.toggle_mode = toggle_mode
+        self.hide_vk_codes = hide_vk_codes or [HOTKEY_TO_VK["H"]]
+        self.hide_hotkey_label = hide_hotkey_label
         self._thread = None
         self._stop_event = threading.Event()
         self._events = queue.Queue()
@@ -317,6 +406,8 @@ class MapHideService:
         announced_connection_failure = False
         final_status_message = "MapHide stopped."
         had_successful_connection = False
+        show_key_was_down = False
+        hide_key_was_down = False
 
         try:
             while not self._stop_event.is_set():
@@ -329,6 +420,8 @@ class MapHideService:
                         active_scene_name = None
                         last_scene_refresh = datetime.min
                         hide_requested_at = None
+                        show_key_was_down = False
+                        hide_key_was_down = False
                         announced_connection_failure = False
                         had_successful_connection = True
                         self._emit("status", "Connected to OBS.")
@@ -359,29 +452,48 @@ class MapHideService:
                                     f"Source '{cfg.scene_item_name}' not found.",
                                 )
                             else:
+                                if self.toggle_mode:
+                                    status_message = (
+                                        f"Scene: {active_scene_name}. "
+                                        f"{self.show_hotkey_label} shows '{cfg.scene_item_name}', "
+                                        f"{self.hide_hotkey_label} hides it."
+                                    )
+                                else:
+                                    status_message = (
+                                        f"Scene: {active_scene_name}. "
+                                        f"Hold {self.show_hotkey_label} for '{cfg.scene_item_name}'."
+                                    )
                                 self._emit(
                                     "status",
-                                    f"Scene: {active_scene_name}. "
-                                    f"{self.hotkey_label} toggles '{cfg.scene_item_name}'.",
+                                    status_message,
                                     scene_item_id=item_id,
                                 )
                         last_scene_refresh = now
 
-                    down = is_key_down(self.vk_code)
+                    show_key_down = is_hotkey_down(self.show_vk_codes)
 
-                    if down and not overlay_visible and item_id is not None:
-                        hide_requested_at = None
-                        if (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS):
-                            set_scene_item_enabled_raw(client, active_scene_name, item_id, True)
-                            overlay_visible = True
-                            last_action_time = now
-                            self._emit("overlay", "Overlay shown.", visible=True)
+                    if self.toggle_mode:
+                        hide_key_down = is_hotkey_down(self.hide_vk_codes)
 
-                    elif not down and overlay_visible and item_id is not None:
-                        if hide_requested_at is None:
+                        if show_key_down and not show_key_was_down and item_id is not None:
+                            hide_requested_at = None
+                            if (
+                                not overlay_visible
+                                and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
+                            ):
+                                set_scene_item_enabled_raw(client, active_scene_name, item_id, True)
+                                overlay_visible = True
+                                last_action_time = now
+                                self._emit("overlay", "Overlay shown.", visible=True)
+
+                        if hide_key_down and not hide_key_was_down and overlay_visible and item_id is not None:
                             hide_requested_at = now
+
                         if (
-                            (now - hide_requested_at) >= timedelta(milliseconds=HIDE_DELAY_MS)
+                            hide_requested_at is not None
+                            and overlay_visible
+                            and item_id is not None
+                            and (now - hide_requested_at) >= timedelta(milliseconds=cfg.hide_delay_ms)
                             and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
                         ):
                             set_scene_item_enabled_raw(client, active_scene_name, item_id, False)
@@ -389,8 +501,32 @@ class MapHideService:
                             hide_requested_at = None
                             last_action_time = now
                             self._emit("overlay", "Overlay hidden.", visible=False)
+
+                        show_key_was_down = show_key_down
+                        hide_key_was_down = hide_key_down
                     else:
-                        hide_requested_at = None
+                        if show_key_down and not overlay_visible and item_id is not None:
+                            hide_requested_at = None
+                            if (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS):
+                                set_scene_item_enabled_raw(client, active_scene_name, item_id, True)
+                                overlay_visible = True
+                                last_action_time = now
+                                self._emit("overlay", "Overlay shown.", visible=True)
+
+                        elif not show_key_down and overlay_visible and item_id is not None:
+                            if hide_requested_at is None:
+                                hide_requested_at = now
+                            if (
+                                (now - hide_requested_at) >= timedelta(milliseconds=cfg.hide_delay_ms)
+                                and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
+                            ):
+                                set_scene_item_enabled_raw(client, active_scene_name, item_id, False)
+                                overlay_visible = False
+                                hide_requested_at = None
+                                last_action_time = now
+                                self._emit("overlay", "Overlay hidden.", visible=False)
+                        else:
+                            hide_requested_at = None
 
                     time.sleep(POLL_INTERVAL)
                 except Exception as exc:
@@ -404,6 +540,8 @@ class MapHideService:
                     item_id = None
                     active_scene_name = None
                     hide_requested_at = None
+                    show_key_was_down = False
+                    hide_key_was_down = False
                     time.sleep(RECONNECT_DELAY)
         finally:
             if client is not None and item_id is not None and active_scene_name is not None:
@@ -432,6 +570,10 @@ class MapHideApp:
         self.exit_requested = False
         self.is_hidden_to_tray = False
         self.settings_visible = False
+        self.restart_pending = False
+        self.pending_restart_config = None
+        self.restart_service_ref = None
+        self.reset_confirm_pending = False
         self.collapsed_width = 0
         self.expanded_width = 0
         self.window_height = 0
@@ -441,6 +583,11 @@ class MapHideApp:
         self.password_var = tk.StringVar()
         self.item_var = tk.StringVar()
         self.hotkey_var = tk.StringVar(value="G")
+        self.hide_hotkey_var = tk.StringVar(value="H")
+        self.toggle_mode_var = tk.BooleanVar(value=False)
+        self.hotkey_label_var = tk.StringVar(value="Hotkey")
+        self.hide_delay_var = tk.IntVar(value=DEFAULT_HIDE_DELAY_MS)
+        self.hide_delay_label_var = tk.StringVar(value=f"{DEFAULT_HIDE_DELAY_MS} ms")
         self.show_host_var = tk.BooleanVar(value=False)
         self.show_port_var = tk.BooleanVar(value=False)
         self.show_password_var = tk.BooleanVar(value=False)
@@ -448,16 +595,21 @@ class MapHideApp:
         self.status_var = tk.StringVar(value="Idle")
         self.help_text_var = tk.StringVar(value="Hold G to show the overlay. Release G to hide it.")
         self.active_hotkey_label = "G"
+        self.active_hide_hotkey_label = "H"
+        self.active_toggle_mode = False
+        self.key_capture_target = None
 
         self._configure_styles()
         self._build_ui()
         self._apply_window_background()
         self._apply_window_icon()
         self._apply_footer_watermark()
+        self._load_initial_config()
         self._measure_window_sizes()
         self._apply_window_size(self.collapsed_width)
-        self._load_initial_config()
         self.root.bind_all("<Button-1>", self._handle_global_click, add="+")
+        self.root.bind_all("<KeyPress>", self._handle_key_capture_press, add="+")
+        self.root.bind_all("<KeyRelease>", self._handle_key_capture_release, add="+")
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._setup_tray()
         self.root.after(100, self._drain_events)
@@ -514,24 +666,6 @@ class MapHideApp:
         )
         style.map("TEntry", fieldbackground=[("disabled", COLOR_PANEL_ALT)])
         style.configure(
-            "TCombobox",
-            fieldbackground=COLOR_INPUT,
-            foreground=COLOR_TEXT,
-            background=COLOR_PANEL_ALT,
-            arrowcolor=COLOR_TEXT,
-            bordercolor=COLOR_BORDER,
-            lightcolor=COLOR_BORDER,
-            darkcolor=COLOR_BORDER,
-            padding=4,
-        )
-        style.map(
-            "TCombobox",
-            fieldbackground=[("readonly", COLOR_INPUT)],
-            foreground=[("readonly", COLOR_TEXT)],
-            background=[("readonly", COLOR_PANEL_ALT)],
-            arrowcolor=[("active", COLOR_ACCENT), ("readonly", COLOR_TEXT)],
-        )
-        style.configure(
             "TCheckbutton",
             background=COLOR_PANEL,
             foreground=COLOR_TEXT,
@@ -545,6 +679,15 @@ class MapHideApp:
             foreground=[("disabled", COLOR_DISABLED)],
             indicatorbackground=[("selected", COLOR_ACCENT), ("active", COLOR_INPUT)],
         )
+        style.configure(
+            "Horizontal.TScale",
+            background=COLOR_BG,
+            troughcolor=COLOR_INPUT,
+            bordercolor=COLOR_BORDER,
+            lightcolor=COLOR_BORDER,
+            darkcolor=COLOR_BORDER,
+        )
+        style.map("Horizontal.TScale", background=[("active", COLOR_PANEL_ALT)])
 
     def _build_ui(self):
         frame = ttk.Frame(self.root, padding=12)
@@ -565,7 +708,13 @@ class MapHideApp:
         title_row.grid(row=0, column=0, sticky="w")
 
         ttk.Label(title_row, text="MapHide", style="Header.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(title_row, text=APP_VERSION, style="Version.TLabel").grid(row=0, column=1, sticky="w", padx=(8, 0))
+        ttk.Label(title_row, text=APP_VERSION, style="Version.TLabel").grid(
+            row=0,
+            column=1,
+            sticky="sw",
+            padx=(6, 0),
+            pady=(0, 1),
+        )
         self.settings_button = ttk.Button(header_row, text="Settings >", command=self.toggle_settings_panel)
         self.settings_button.grid(row=0, column=1, sticky="e")
 
@@ -590,20 +739,45 @@ class MapHideApp:
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 2))
 
         ttk.Label(controls_frame, text="Status").grid(row=2, column=0, sticky="nw", pady=(8, 2), padx=(0, 10))
-        self.status_label = ttk.Label(controls_frame, textvariable=self.status_var, justify="left")
-        self.status_label.grid(
+        status_area = tk.Frame(
+            controls_frame,
+            width=STATUS_AREA_WIDTH,
+            height=STATUS_AREA_HEIGHT,
+            bg=COLOR_BG,
+            highlightthickness=0,
+        )
+        status_area.grid(
             row=2,
             column=1,
-            sticky="nsew",
+            sticky="nw",
             pady=(8, 6),
         )
-        controls_frame.bind("<Configure>", self._update_status_wraplength)
+        status_area.grid_propagate(False)
+        self.status_label = ttk.Label(
+            status_area,
+            textvariable=self.status_var,
+            justify="left",
+            wraplength=STATUS_AREA_WIDTH - 8,
+        )
+        self.status_label.place(x=0, y=0, width=STATUS_AREA_WIDTH, height=STATUS_AREA_HEIGHT)
 
-        ttk.Label(
+        help_area = tk.Frame(
             controls_frame,
+            width=HELP_AREA_WIDTH,
+            height=HELP_AREA_HEIGHT,
+            bg=COLOR_PANEL,
+            highlightthickness=0,
+        )
+        help_area.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        help_area.grid_propagate(False)
+        self.help_label = ttk.Label(
+            help_area,
             textvariable=self.help_text_var,
             style="Muted.TLabel",
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+            wraplength=HELP_AREA_WIDTH - 8,
+            justify="left",
+        )
+        self.help_label.place(x=0, y=0, width=HELP_AREA_WIDTH, height=HELP_AREA_HEIGHT)
 
         self.footer_brand = ttk.Label(left_panel, text="Color Dumper • 2026", style="Version.TLabel")
         self.footer_brand.grid(
@@ -665,15 +839,57 @@ class MapHideApp:
             command=self._update_sensitive_visibility,
         ).grid(row=2, column=2, sticky="w", padx=(10, 0))
 
-        ttk.Label(obs_frame, text="Hotkey").grid(row=3, column=0, sticky="w", pady=4, padx=(0, 10))
-        self.hotkey_combobox = ttk.Combobox(
-            obs_frame,
-            textvariable=self.hotkey_var,
-            values=HOTKEY_LABELS,
-            width=5,
-            state="readonly",
+        self.hotkey_label = ttk.Label(obs_frame, textvariable=self.hotkey_label_var)
+        self.hotkey_label.grid(row=3, column=0, sticky="w", pady=4, padx=(0, 10))
+
+        hotkey_controls = ttk.Frame(obs_frame)
+        hotkey_controls.grid(row=3, column=1, columnspan=2, sticky="w", pady=4)
+
+        self.hotkey_button = ttk.Button(
+            hotkey_controls,
+            text=self.hotkey_var.get(),
+            width=KEY_BUTTON_WIDTH,
+            command=lambda: self._start_key_capture("show"),
         )
-        self.hotkey_combobox.grid(row=3, column=1, sticky="w", pady=4)
+        self.hotkey_button.grid(row=0, column=0, sticky="w")
+
+        self.hide_hotkey_label = ttk.Label(hotkey_controls, text="Hide key")
+        self.hide_hotkey_button = ttk.Button(
+            hotkey_controls,
+            text=self.hide_hotkey_var.get(),
+            width=KEY_BUTTON_WIDTH,
+            command=lambda: self._start_key_capture("hide"),
+        )
+        self.hide_hotkey_label.grid(row=0, column=1, sticky="w", padx=(8, 6))
+        self.hide_hotkey_button.grid(row=0, column=2, sticky="w")
+
+        self.toggle_mode_check = ttk.Checkbutton(
+            hotkey_controls,
+            text="Toggle mode",
+            variable=self.toggle_mode_var,
+            command=self._update_toggle_mode_ui,
+        )
+        self.toggle_mode_check.grid(row=0, column=3, sticky="w", padx=(8, 0))
+
+        ttk.Label(obs_frame, text="Hide delay").grid(row=4, column=0, sticky="w", pady=4, padx=(0, 10))
+        hide_delay_frame = ttk.Frame(obs_frame)
+        hide_delay_frame.grid(row=4, column=1, columnspan=2, sticky="ew", pady=4)
+        hide_delay_frame.columnconfigure(0, weight=1)
+
+        self.hide_delay_scale = ttk.Scale(
+            hide_delay_frame,
+            from_=MIN_HIDE_DELAY_MS,
+            to=MAX_HIDE_DELAY_MS,
+            variable=self.hide_delay_var,
+            command=self._on_hide_delay_changed,
+        )
+        self.hide_delay_scale.grid(row=0, column=0, sticky="ew")
+        ttk.Label(
+            hide_delay_frame,
+            textvariable=self.hide_delay_label_var,
+            style="Muted.TLabel",
+            width=7,
+        ).grid(row=0, column=1, sticky="e", padx=(10, 0))
 
         ttk.Label(
             self.settings_panel,
@@ -693,7 +909,16 @@ class MapHideApp:
             pady=(10, 0),
         )
 
+        ttk.Button(self.settings_panel, text="Reset Defaults", command=self.reset_defaults).grid(
+            row=4,
+            column=0,
+            sticky="e",
+            pady=(8, 0),
+        )
+
         self._update_sensitive_visibility()
+        self._update_toggle_mode_ui()
+        self._sync_key_buttons()
 
     def _apply_window_background(self):
         if not hasattr(self, "main_frame"):
@@ -737,12 +962,32 @@ class MapHideApp:
         self.collapsed_width = self.root.winfo_reqwidth()
         self.window_height = self.root.winfo_reqheight()
 
+        original_toggle_mode = self.toggle_mode_var.get()
+        original_hotkey = self.hotkey_var.get()
+        original_hide_hotkey = self.hide_hotkey_var.get()
+        original_capture_target = self.key_capture_target
+
+        self.key_capture_target = None
+        self.toggle_mode_var.set(True)
+        self.hotkey_var.set("Press key...")
+        self.hide_hotkey_var.set("SHIFT+Z")
+        self._update_toggle_mode_ui()
+
         self.settings_panel.grid()
         self.root.update_idletasks()
-        self.expanded_width = self.root.winfo_reqwidth()
-        self.window_height = max(self.window_height, self.root.winfo_reqheight()) + 36
+        self.expanded_width = self.root.winfo_reqwidth() + WINDOW_EXTRA_WIDTH
+        self.window_height = max(self.window_height, self.root.winfo_reqheight()) + WINDOW_EXTRA_HEIGHT
 
         self.settings_panel.grid_remove()
+
+        self.toggle_mode_var.set(original_toggle_mode)
+        self.hotkey_var.set(original_hotkey)
+        self.hide_hotkey_var.set(original_hide_hotkey)
+        self.key_capture_target = original_capture_target
+        self._update_toggle_mode_ui()
+
+    def _default_form_config(self):
+        return default_config()
 
     def _load_initial_config(self):
         try:
@@ -760,8 +1005,16 @@ class MapHideApp:
         self.password_var.set(cfg.password)
         self.item_var.set(cfg.scene_item_name)
         self.auto_connect_var.set(cfg.auto_connect)
-        self.hotkey_var.set(cfg.hotkey if cfg.hotkey in HOTKEY_TO_VK else "G")
+        self.hotkey_var.set(cfg.hotkey if is_valid_show_hotkey(cfg.hotkey) else "G")
+        self.toggle_mode_var.set(cfg.toggle_mode)
+        self.hide_hotkey_var.set(cfg.hide_hotkey if is_valid_hide_hotkey(cfg.hide_hotkey) else "H")
+        self.hide_delay_var.set(self._clamp_hide_delay(cfg.hide_delay_ms))
+        self._update_hide_delay_label()
         self.active_hotkey_label = self.hotkey_var.get().strip().upper() or "G"
+        self.active_hide_hotkey_label = self.hide_hotkey_var.get().strip().upper() or "H"
+        self.active_toggle_mode = cfg.toggle_mode
+        self._update_toggle_mode_ui()
+        self._sync_key_buttons()
         self._update_help_text()
 
     def _read_form(self):
@@ -770,6 +1023,9 @@ class MapHideApp:
         password = self.password_var.get()
         scene_item_name = self.item_var.get().strip()
         hotkey = self.hotkey_var.get().strip().upper()
+        toggle_mode = self.toggle_mode_var.get()
+        hide_hotkey = self.hide_hotkey_var.get().strip().upper()
+        hide_delay_ms = self._clamp_hide_delay(self.hide_delay_var.get())
 
         if not host:
             raise ValueError("OBS Host is required.")
@@ -777,8 +1033,13 @@ class MapHideApp:
             raise ValueError("OBS Port is required.")
         if not scene_item_name:
             raise ValueError("Overlay Source is required.")
-        if hotkey not in HOTKEY_TO_VK:
-            raise ValueError("Select a valid hotkey.")
+        if not is_valid_show_hotkey(hotkey):
+            raise ValueError("Show key must be A-Z.")
+        if toggle_mode:
+            if not is_valid_hide_hotkey(hide_hotkey):
+                raise ValueError("Select a valid hide key.")
+            if hide_hotkey == hotkey:
+                raise ValueError("Show key and hide key must be different in toggle mode.")
 
         try:
             port = int(port_text)
@@ -792,27 +1053,61 @@ class MapHideApp:
             scene_item_name=scene_item_name,
             auto_connect=self.auto_connect_var.get(),
             hotkey=hotkey,
+            toggle_mode=toggle_mode,
+            hide_hotkey=hide_hotkey,
+            hide_delay_ms=hide_delay_ms,
         )
 
     def save_form_config(self):
+        self.reset_confirm_pending = False
         try:
             cfg = self._read_form()
             save_config(cfg)
+        except ValueError as exc:
+            self.status_var.set(str(exc))
+            return
         except Exception as exc:
             self._show_error("Could not save config", str(exc))
             return
         self.active_hotkey_label = cfg.hotkey
+        self.active_hide_hotkey_label = cfg.hide_hotkey
+        self.active_toggle_mode = cfg.toggle_mode
         self._update_help_text()
         if self.service.is_running:
             self._restart_service_with_config(cfg)
-        self.status_var.set("Config saved.")
+            self.status_var.set("Config saved. Restarting MapHide...")
+        else:
+            self.status_var.set("Config saved.")
+
+    def reset_defaults(self):
+        if not self.reset_confirm_pending:
+            self.reset_confirm_pending = True
+            self.status_var.set("Click Reset Defaults again to confirm.")
+            return
+
+        self.reset_confirm_pending = False
+        cfg = self._default_form_config()
+        self._set_form(cfg)
+        save_config(cfg)
+        self.active_hotkey_label = cfg.hotkey
+        self.active_hide_hotkey_label = cfg.hide_hotkey
+        self.active_toggle_mode = cfg.toggle_mode
+        self._update_help_text()
+        if self.service.is_running:
+            self._restart_service_with_config(cfg)
+            self.status_var.set("Defaults restored. Restarting MapHide...")
+        else:
+            self.status_var.set("Defaults restored.")
 
     def start_service(self):
         try:
             cfg = self._read_form()
             save_config(cfg)
-            self.service = MapHideService(vk_code=cfg.hotkey_vk_code(), hotkey_label=cfg.hotkey)
+            self.service = self._create_service(cfg)
             self.service.start(cfg)
+        except ValueError as exc:
+            self.status_var.set(str(exc))
+            return
         except Exception as exc:
             self._show_error("Could not start MapHide", str(exc))
             return
@@ -826,10 +1121,44 @@ class MapHideApp:
         self.status_var.set("Stopping...")
 
     def _restart_service_with_config(self, cfg):
-        self.service.stop()
-        self.service.wait(timeout=2)
-        self.service = MapHideService(vk_code=cfg.hotkey_vk_code(), hotkey_label=cfg.hotkey)
-        self.service.start(cfg)
+        if self.restart_pending:
+            self.pending_restart_config = cfg
+            return
+        self.restart_pending = True
+        self.pending_restart_config = cfg
+        self.restart_service_ref = self.service
+        self.start_button.configure(state="disabled")
+        self.stop_button.configure(state="disabled")
+        self.restart_service_ref.stop()
+        self.root.after(50, self._finish_service_restart)
+
+    def _finish_service_restart(self):
+        service_ref = self.restart_service_ref
+        if service_ref is not None and service_ref.is_running:
+            self.root.after(50, self._finish_service_restart)
+            return
+
+        cfg = self.pending_restart_config
+        self.restart_pending = False
+        self.pending_restart_config = None
+        self.restart_service_ref = None
+
+        if cfg is None:
+            self.start_button.configure(state="normal")
+            self.stop_button.configure(state="disabled")
+            return
+
+        try:
+            self.service = self._create_service(cfg)
+            self.service.start(cfg)
+        except Exception as exc:
+            self.status_var.set(str(exc))
+            self.start_button.configure(state="normal")
+            self.stop_button.configure(state="disabled")
+            return
+
+        self.start_button.configure(state="disabled")
+        self.stop_button.configure(state="normal")
 
     def _drain_events(self):
         while True:
@@ -850,8 +1179,9 @@ class MapHideApp:
                 self.status_var.set(message)
             elif kind == "stopped":
                 self.status_var.set(message)
-                self.start_button.configure(state="normal")
-                self.stop_button.configure(state="disabled")
+                if not self.restart_pending:
+                    self.start_button.configure(state="normal")
+                    self.stop_button.configure(state="disabled")
 
         self.root.after(100, self._drain_events)
 
@@ -859,18 +1189,12 @@ class MapHideApp:
         if messagebox is not None:
             messagebox.showerror(title, message)
 
-    def _update_status_wraplength(self, event=None):
-        if not hasattr(self, "status_label"):
-            return
-        wraplength = max(self.status_label.winfo_width(), 220)
-        self.status_label.configure(wraplength=wraplength)
-
     def _handle_global_click(self, event):
         widget = event.widget
         if not hasattr(widget, "winfo_class"):
             return
         widget_class = widget.winfo_class()
-        focusable_inputs = {"TEntry", "Entry", "TCombobox", "Combobox"}
+        focusable_inputs = {"TEntry", "Entry"}
         if widget_class in focusable_inputs:
             return
         try:
@@ -880,7 +1204,127 @@ class MapHideApp:
 
     def _update_help_text(self):
         hotkey = self.active_hotkey_label or "G"
-        self.help_text_var.set(f"Hold {hotkey} to show the overlay. Release {hotkey} to hide it.")
+        hide_hotkey = self.active_hide_hotkey_label or "H"
+        if self.active_toggle_mode:
+            self.help_text_var.set(
+                f"Press {hotkey} to show the overlay. Press {hide_hotkey} to hide it."
+            )
+        else:
+            self.help_text_var.set(f"Hold {hotkey} to show the overlay. Release {hotkey} to hide it.")
+
+    def _update_toggle_mode_ui(self):
+        toggle_mode = self.toggle_mode_var.get()
+        self.hotkey_label_var.set("Show key" if toggle_mode else "Hotkey")
+        if toggle_mode:
+            self.hide_hotkey_label.grid()
+            self.hide_hotkey_button.grid()
+        else:
+            self.hide_hotkey_label.grid_remove()
+            self.hide_hotkey_button.grid_remove()
+            if self.key_capture_target == "hide":
+                self._stop_key_capture()
+        self._sync_key_buttons()
+
+    def _sync_key_buttons(self):
+        if hasattr(self, "hotkey_button"):
+            if self.key_capture_target != "show":
+                self.hotkey_button.configure(text=self.hotkey_var.get().strip().upper() or "Select")
+        if hasattr(self, "hide_hotkey_button"):
+            if self.key_capture_target != "hide":
+                self.hide_hotkey_button.configure(text=self.hide_hotkey_var.get().strip().upper() or "Select")
+
+    def _start_key_capture(self, target):
+        if self.key_capture_target == target:
+            self._stop_key_capture()
+            return
+        self._stop_key_capture()
+        self.key_capture_target = target
+        button = self.hotkey_button if target == "show" else self.hide_hotkey_button
+        button.configure(text="Press key...")
+        if target == "show":
+            self.status_var.set("Press and release A-Z.")
+        else:
+            self.status_var.set("Press A-Z, SHIFT, or SHIFT plus A-Z.")
+        try:
+            self.root.focus_force()
+        except Exception:
+            pass
+
+    def _stop_key_capture(self):
+        if self.key_capture_target == "show" and hasattr(self, "hotkey_button"):
+            self.hotkey_button.configure(text=self.hotkey_var.get().strip().upper() or "Select")
+        elif self.key_capture_target == "hide" and hasattr(self, "hide_hotkey_button"):
+            self.hide_hotkey_button.configure(text=self.hide_hotkey_var.get().strip().upper() or "Select")
+        self.key_capture_target = None
+
+    def _handle_key_capture_press(self, event):
+        if self.key_capture_target is not None:
+            return "break"
+        return None
+
+    def _handle_key_capture_release(self, event):
+        if self.key_capture_target is None:
+            return None
+        hotkey = self._hotkey_from_event(event)
+        if not hotkey:
+            if self.key_capture_target == "hide":
+                self.status_var.set("Hide key supports A-Z, SHIFT, or SHIFT+A-Z.")
+            else:
+                self.status_var.set("Show key supports A-Z.")
+            self._stop_key_capture()
+            return "break"
+        if self.key_capture_target == "show":
+            if not is_valid_show_hotkey(hotkey):
+                self.status_var.set("Show key must be A-Z.")
+                self._stop_key_capture()
+                return "break"
+            self.hotkey_var.set(hotkey)
+        elif self.key_capture_target == "hide":
+            if not is_valid_hide_hotkey(hotkey):
+                self.status_var.set("Hide key supports A-Z, SHIFT, or SHIFT+A-Z.")
+                self._stop_key_capture()
+                return "break"
+            self.hide_hotkey_var.set(hotkey)
+        self._stop_key_capture()
+        self._sync_key_buttons()
+        self.status_var.set("Key selected. Click Save Settings to apply.")
+        return "break"
+
+    def _hotkey_from_event(self, event):
+        key = normalize_event_key(event.keysym)
+        if key is None:
+            return None
+        modifiers = [
+            label
+            for label, mask in EVENT_STATE_MODIFIERS
+            if (event.state & mask) and label != key
+        ]
+        if key in MODIFIER_LABELS:
+            return key
+        labels = [*modifiers, key]
+        return "+".join(labels)
+
+    def _on_hide_delay_changed(self, value=None):
+        self._update_hide_delay_label()
+
+    def _update_hide_delay_label(self):
+        self.hide_delay_label_var.set(f"{self._clamp_hide_delay(self.hide_delay_var.get())} ms")
+
+    def _clamp_hide_delay(self, value):
+        try:
+            delay = int(float(value))
+        except (TypeError, ValueError):
+            delay = DEFAULT_HIDE_DELAY_MS
+        return max(MIN_HIDE_DELAY_MS, min(MAX_HIDE_DELAY_MS, delay))
+
+    def _create_service(self, cfg):
+        return MapHideService(
+            show_vk_codes=cfg.hotkey_vk_code(),
+            show_hotkey_label=cfg.hotkey,
+            toggle_mode=cfg.toggle_mode,
+            hide_vk_codes=cfg.hide_hotkey_vk_code(),
+            hide_hotkey_label=cfg.hide_hotkey,
+        )
 
     def _update_sensitive_visibility(self):
         if hasattr(self, "host_entry"):
@@ -891,8 +1335,11 @@ class MapHideApp:
             self.password_entry.configure(show="" if self.show_password_var.get() else "*")
 
     def _apply_window_size(self, width):
-        self.root.geometry(f"{int(width)}x{self.window_height}")
-        self.root.update_idletasks()
+        width = int(width)
+        height = int(self.window_height)
+        self.root.minsize(width, height)
+        self.root.maxsize(width, height)
+        self.root.geometry(f"{width}x{height}")
 
     def toggle_settings_panel(self):
         if self.settings_visible:
@@ -911,6 +1358,7 @@ class MapHideApp:
     def hide_settings_panel(self):
         if not self.settings_visible:
             return
+        self._stop_key_capture()
         self.settings_visible = False
         self.settings_button.configure(text="Settings >")
         self.settings_panel.grid_remove()
@@ -1001,13 +1449,31 @@ def run_headless():
             '  "password":"",\n'
             '  "scene_item_name":"",\n'
             '  "auto_connect":false,\n'
-            '  "hotkey":"G"\n}'
+            '  "hotkey":"G",\n'
+            '  "toggle_mode":false,\n'
+            '  "hide_hotkey":"H",\n'
+            '  "hide_delay_ms":120\n}'
         )
         sys.exit(1)
 
-    service = MapHideService(vk_code=cfg.hotkey_vk_code(), hotkey_label=cfg.hotkey)
+    service = MapHideService(
+        show_vk_codes=cfg.hotkey_vk_code(),
+        show_hotkey_label=cfg.hotkey,
+        toggle_mode=cfg.toggle_mode,
+        hide_vk_codes=cfg.hide_hotkey_vk_code(),
+        hide_hotkey_label=cfg.hide_hotkey,
+    )
     service.start(cfg)
-    print(f"Headless mode active. Hold {cfg.hotkey} to SHOW the overlay; release to HIDE. Press Ctrl+C to exit.")
+    if cfg.toggle_mode:
+        print(
+            f"Headless mode active. Press {cfg.hotkey} to SHOW the overlay; "
+            f"press {cfg.hide_hotkey} to HIDE. Press Ctrl+C to exit."
+        )
+    else:
+        print(
+            f"Headless mode active. Hold {cfg.hotkey} to SHOW the overlay; "
+            f"release to HIDE. Press Ctrl+C to exit."
+        )
 
     try:
         while True:

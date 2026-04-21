@@ -4,5 +4,8 @@
   "password": "",
   "scene_item_name": "",
   "auto_connect": false,
-  "hotkey": "G"
+  "hotkey": "G",
+  "toggle_mode": false,
+  "hide_hotkey": "H",
+  "hide_delay_ms": 120
 }

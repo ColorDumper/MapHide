@@ -263,7 +263,7 @@ This is normal behavior. MapHide hides to the system tray instead of fully closi
 
 ## Version
 
-Current release: `v0.2.2`
+Current release: `v0.2.3`
 
 ## Credits
 

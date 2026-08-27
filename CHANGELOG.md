@@ -2,9 +2,22 @@
 
 All notable changes to MapHide are documented here.
 
-This file was reconstructed from the Git history after the original GitHub
-release notes were lost during a repository reset. Dates and details are
-derived from tagged commits.
+Entries through v0.2.2 were reconstructed from the Git history after the
+original GitHub release notes were lost during a repository reset; their
+details are derived from tagged commits. v0.2.3 onward is maintained
+normally.
+
+## v0.2.3 - 2026-08-27
+
+- Packaging: switched from a one-file executable to a one-dir build
+  (`MapHide/MapHide.exe` plus an `_internal/` folder, distributed as a
+  zip). One-file PyInstaller builds are a frequent antivirus
+  false-positive trigger; this significantly reduces spurious detections.
+- Packaging: embedded version metadata (product name, version, company,
+  copyright) in the executable.
+- Fixed bundled-resource paths for frozen builds (icons and the watermark
+  now resolve correctly regardless of build type).
+- No functional changes to map hiding, keybinds, or OBS control.
 
 ## v0.2.2 - 2026-04-21
 

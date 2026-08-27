@@ -49,9 +49,14 @@ except Exception as e:
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
 
-APP_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    # PyInstaller: bundled data lives under sys._MEIPASS (a temp dir for
+    # one-file builds, the _internal folder for one-dir builds).
+    APP_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+else:
+    APP_DIR = Path(__file__).resolve().parent
 APP_NAME = "MapHide"
-APP_VERSION = "v0.2.2"
+APP_VERSION = "v0.2.3"
 CONFIG_DIR = Path(os.getenv("APPDATA", APP_DIR)) / APP_NAME
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LEGACY_CONFIG_PATH = APP_DIR / "config.json"

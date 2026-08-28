@@ -205,7 +205,9 @@ Example:
 C:\Users\YourName\AppData\Roaming\MapHide\config.json
 ```
 
-The `config.json` file in the project folder is only a safe default/template file. User settings are saved in AppData after the app runs.
+You normally never edit this by hand — the app writes it after you save settings in the UI.
+
+The repo ships `config.example.json` as a template. If you run MapHide from source and want to pre-fill settings, copy it to `config.json` in the project folder and edit that copy. Your local `config.json` is gitignored, so your OBS host and password are never committed.
 
 ## Notes
 

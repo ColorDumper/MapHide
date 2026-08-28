@@ -1,0 +1,7 @@
+# Normalize all text files to LF in the repository; Git converts on checkout
+# per the user's platform. Stops CRLF/LF churn on Windows.
+* text=auto eol=lf
+
+# Treat build/icon assets as binary (no line-ending or diff processing).
+*.png binary
+*.ico binary

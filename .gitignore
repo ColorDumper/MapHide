@@ -5,3 +5,7 @@ build/
 dist/
 *.spec
 !MapHide.spec
+
+# Local runtime config (copy config.example.json to config.json and edit).
+# Never commit real OBS host/password.
+config.json

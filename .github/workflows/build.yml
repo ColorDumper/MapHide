@@ -1,0 +1,117 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Default to read-only; the release job below opts into write.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write  # needed only to create/update the Release on a tag build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # PyInstaller output occasionally trips Defender on the hosted runner.
+      - name: Exclude workspace from Defender
+        shell: pwsh
+        run: Add-MpPreference -ExclusionPath "${{ github.workspace }}"
+        continue-on-error: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # A tagged build must match the version baked into the app.
+      - name: Check version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $line = Select-String -Path map_hider.py -Pattern 'APP_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
+          $appVersion = $line.Matches[0].Groups[1].Value
+          Write-Host "tag=$tag  APP_VERSION=$appVersion"
+          if ($tag -ne $appVersion) {
+            Write-Error "Tag '$tag' does not match APP_VERSION '$appVersion' in map_hider.py. Bump the version strings before tagging."
+            exit 1
+          }
+
+      - name: Build
+        run: pyinstaller --noconfirm MapHide.spec
+
+      - name: Smoke test the build
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist/MapHide/MapHide.exe')) { throw 'MapHide.exe missing' }
+          if (-not (Test-Path 'dist/MapHide/_internal/python*.dll')) { throw '_internal runtime missing' }
+          if (-not (Test-Path 'dist/MapHide/_internal/assets/MapHide_Icon_64.png')) { throw 'bundled assets missing' }
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $version = '${{ github.ref_name }}'
+          } else {
+            $version = 'dev-' + (git rev-parse --short HEAD)
+          }
+          $stage = "dist/MapHide-$version"
+          Copy-Item -Recurse dist/MapHide $stage
+          $zip = "dist/MapHide-$version-win64.zip"
+          Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA-256: $hash"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "zip=$zip"         >> $env:GITHUB_OUTPUT
+          "sha256=$hash"     >> $env:GITHUB_OUTPUT
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MapHide-${{ steps.package.outputs.version }}
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error
+
+      - name: Create or update draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag  = '${{ github.ref_name }}'
+          $zip  = '${{ steps.package.outputs.zip }}'
+          $hash = '${{ steps.package.outputs.sha256 }}'
+          $repo = '${{ github.repository }}'
+
+          $notes = @(
+            "SHA-256 of MapHide-$tag-win64.zip:"
+            $hash
+            ""
+            "Changelog: https://github.com/$repo/blob/main/CHANGELOG.md"
+          ) -join "`n"
+          $notes | Out-File -FilePath notes.md -Encoding utf8
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag exists - uploading asset with --clobber"
+            gh release upload $tag $zip --clobber
+          } else {
+            Write-Host "Creating draft release $tag"
+            gh release create $tag $zip --draft --title $tag --notes-file notes.md
+          }

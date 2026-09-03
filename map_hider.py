@@ -444,6 +444,7 @@ class MapHideService:
     def _run(self, cfg):
         client = None
         overlay_visible = False
+        toggle_desired_visible = False
         item_id = None
         scene_items = {}
         overlay_available = False
@@ -537,16 +538,25 @@ class MapHideService:
                         same_key_toggle = self.show_vk_codes == self.hide_vk_codes
 
                         if same_key_toggle:
+                            # Each press toggles, so it has to flip an intent held apart
+                            # from what OBS has already been told. Reading overlay_visible
+                            # instead treats every press during the hide delay as another
+                            # hide, and the parity drifts until a press meant to re-open
+                            # the map leaves it uncovered.
                             if show_key_down and not show_key_was_down and overlay_available:
-                                if overlay_visible:
-                                    hide_requested_at = now
-                                else:
-                                    hide_requested_at = None
-                                    if (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS):
-                                        set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
-                                        overlay_visible = True
-                                        last_action_time = now
-                                        self._emit("overlay", "Overlay shown.", visible=True)
+                                toggle_desired_visible = not toggle_desired_visible
+                                hide_requested_at = None if toggle_desired_visible else now
+
+                            if (
+                                toggle_desired_visible
+                                and not overlay_visible
+                                and overlay_available
+                                and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
+                            ):
+                                set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
+                                overlay_visible = True
+                                last_action_time = now
+                                self._emit("overlay", "Overlay shown.", visible=True)
                         elif show_key_down and not show_key_was_down and overlay_available:
                             hide_requested_at = None
                             if (

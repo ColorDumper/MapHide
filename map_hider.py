@@ -290,6 +290,34 @@ def set_scene_item_enabled_raw(client, scene_name, scene_item_id, enabled):
     return client.send("SetSceneItemEnabled", payload, raw=True)
 
 
+def find_overlay_scene_items_raw(client, source_name):
+    try:
+        resp = client.send("GetSceneList", raw=True)
+    except Exception as exc:
+        raise RuntimeError(describe_obs_request_error(exc)) from exc
+
+    scenes = resp.get("scenes") or resp.get("scene_list") or []
+    scene_items = {}
+    for scene in scenes:
+        scene_name = scene.get("sceneName") or scene.get("scene_name")
+        if scene_name:
+            scene_items[scene_name] = find_scene_item_id_raw(client, scene_name, source_name)
+    return scene_items
+
+
+def set_overlay_enabled_raw(client, scene_items, current_scene_name, enabled):
+    # The overlay covers one thing - whether the map is open - so it belongs in the
+    # same state in every scene that carries the source. Keeping them all in step
+    # means an OBS scene transition needs no work from MapHide and cannot catch the
+    # incoming scene uncovered. Current scene first, since it is the one on screen.
+    ordered = [name for name in (current_scene_name,) if name in scene_items]
+    ordered += [name for name in scene_items if name != current_scene_name]
+    for scene_name in ordered:
+        scene_item_id = scene_items[scene_name]
+        if scene_item_id is not None:
+            set_scene_item_enabled_raw(client, scene_name, scene_item_id, enabled)
+
+
 def normalize_hotkey_label(value):
     label = str(value).strip().upper()
     return label
@@ -417,6 +445,8 @@ class MapHideService:
         client = None
         overlay_visible = False
         item_id = None
+        scene_items = {}
+        overlay_available = False
         active_scene_name = None
         last_action_time = datetime.min
         hide_requested_at = None
@@ -433,7 +463,6 @@ class MapHideService:
                     try:
                         self._emit("status", "Connecting to OBS...")
                         client = connect_obs(cfg.host, cfg.port, cfg.password)
-                        overlay_visible = False
                         item_id = None
                         active_scene_name = None
                         last_scene_refresh = datetime.min
@@ -460,8 +489,11 @@ class MapHideService:
                         latest_scene_name = get_current_program_scene_raw(client)
                         if latest_scene_name != active_scene_name:
                             active_scene_name = latest_scene_name
-                            item_id = find_scene_item_id_raw(client, active_scene_name, cfg.scene_item_name)
-                            overlay_visible = False
+                            # Re-read every scene, not just this one: the source may have
+                            # been added to a scene since the last look.
+                            scene_items = find_overlay_scene_items_raw(client, cfg.scene_item_name)
+                            item_id = scene_items.get(active_scene_name)
+                            overlay_available = any(found is not None for found in scene_items.values())
                             hide_requested_at = None
                             if item_id is None:
                                 self._emit(
@@ -486,6 +518,16 @@ class MapHideService:
                                     status_message,
                                     scene_item_id=item_id,
                                 )
+                            # OBS's actual state is unknown at this point: it restores
+                            # sources enabled after a restart, and a dropped connection can
+                            # strand one visible. Send our state rather than assume it
+                            # already matches. In hold mode the key is the authority; in
+                            # toggle mode the latched state is.
+                            if not self.toggle_mode:
+                                overlay_visible = is_hotkey_down(self.show_vk_codes)
+                            set_overlay_enabled_raw(
+                                client, scene_items, active_scene_name, overlay_visible
+                            )
                         last_scene_refresh = now
 
                     show_key_down = is_hotkey_down(self.show_vk_codes)
@@ -495,23 +537,23 @@ class MapHideService:
                         same_key_toggle = self.show_vk_codes == self.hide_vk_codes
 
                         if same_key_toggle:
-                            if show_key_down and not show_key_was_down and item_id is not None:
+                            if show_key_down and not show_key_was_down and overlay_available:
                                 if overlay_visible:
                                     hide_requested_at = now
                                 else:
                                     hide_requested_at = None
                                     if (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS):
-                                        set_scene_item_enabled_raw(client, active_scene_name, item_id, True)
+                                        set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
                                         overlay_visible = True
                                         last_action_time = now
                                         self._emit("overlay", "Overlay shown.", visible=True)
-                        elif show_key_down and not show_key_was_down and item_id is not None:
+                        elif show_key_down and not show_key_was_down and overlay_available:
                             hide_requested_at = None
                             if (
                                 not overlay_visible
                                 and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
                             ):
-                                set_scene_item_enabled_raw(client, active_scene_name, item_id, True)
+                                set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
                                 overlay_visible = True
                                 last_action_time = now
                                 self._emit("overlay", "Overlay shown.", visible=True)
@@ -521,18 +563,18 @@ class MapHideService:
                             and hide_key_down
                             and not hide_key_was_down
                             and overlay_visible
-                            and item_id is not None
+                            and overlay_available
                         ):
                             hide_requested_at = now
 
                         if (
                             hide_requested_at is not None
                             and overlay_visible
-                            and item_id is not None
+                            and overlay_available
                             and (now - hide_requested_at) >= timedelta(milliseconds=cfg.hide_delay_ms)
                             and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
                         ):
-                            set_scene_item_enabled_raw(client, active_scene_name, item_id, False)
+                            set_overlay_enabled_raw(client, scene_items, active_scene_name, False)
                             overlay_visible = False
                             hide_requested_at = None
                             last_action_time = now
@@ -541,22 +583,22 @@ class MapHideService:
                         show_key_was_down = show_key_down
                         hide_key_was_down = hide_key_down
                     else:
-                        if show_key_down and not overlay_visible and item_id is not None:
+                        if show_key_down and not overlay_visible and overlay_available:
                             hide_requested_at = None
                             if (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS):
-                                set_scene_item_enabled_raw(client, active_scene_name, item_id, True)
+                                set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
                                 overlay_visible = True
                                 last_action_time = now
                                 self._emit("overlay", "Overlay shown.", visible=True)
 
-                        elif not show_key_down and overlay_visible and item_id is not None:
+                        elif not show_key_down and overlay_visible and overlay_available:
                             if hide_requested_at is None:
                                 hide_requested_at = now
                             if (
                                 (now - hide_requested_at) >= timedelta(milliseconds=cfg.hide_delay_ms)
                                 and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
                             ):
-                                set_scene_item_enabled_raw(client, active_scene_name, item_id, False)
+                                set_overlay_enabled_raw(client, scene_items, active_scene_name, False)
                                 overlay_visible = False
                                 hide_requested_at = None
                                 last_action_time = now
@@ -572,7 +614,9 @@ class MapHideService:
                     except Exception:
                         pass
                     client = None
-                    overlay_visible = False
+                    # overlay_visible deliberately survives the drop. It is the only
+                    # record that the overlay may still be up in OBS, and the scene
+                    # resolution above uses it to put things right on reconnect.
                     item_id = None
                     active_scene_name = None
                     hide_requested_at = None
@@ -580,9 +624,9 @@ class MapHideService:
                     hide_key_was_down = False
                     time.sleep(RECONNECT_DELAY)
         finally:
-            if client is not None and item_id is not None and active_scene_name is not None:
+            if client is not None and scene_items:
                 try:
-                    set_scene_item_enabled_raw(client, active_scene_name, item_id, False)
+                    set_overlay_enabled_raw(client, scene_items, active_scene_name, False)
                 except Exception:
                     pass
             if client is not None:

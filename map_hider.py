@@ -40,7 +40,9 @@ except ImportError:
     ImageTk = None
 
 try:
+    import websocket
     from obsws_python import ReqClient
+    from obsws_python.error import OBSSDKError, OBSSDKRequestError, OBSSDKTimeoutError
 except ImportError as e:
     print("ERROR: obsws_python not installed or import failed:", e)
     print("Install in your venv: pip install obsws-python")
@@ -82,6 +84,13 @@ WINDOW_EXTRA_HEIGHT = 56
 WATERMARK_MAX_SIZE = (64, 40)
 SCENE_REFRESH_INTERVAL = 0.25
 RECONNECT_DELAY = 2.0
+OBS_BAD_PASSWORD = "Failed to connect to OBS. The OBS WebSocket password appears to be incorrect."
+OBS_UNREACHABLE = "Failed to connect to OBS. Make sure OBS is open and the WebSocket server is available."
+OBS_SETTINGS_WRONG = "Failed to connect to OBS. Check that OBS is open and your connection settings are correct."
+OBS_LINK_LOST = "The connection to OBS was lost. Reconnect after OBS is available again."
+OBS_READ_REFUSED = "OBS returned an error while reading the current scene."
+OBS_WRITE_REFUSED = "OBS returned an error while updating the overlay source."
+OBS_OVERLAY_MAY_REMAIN = "MapHide stopped, but lost the connection before it could hide the overlay. Check OBS."
 SHOW_KEY_HELP = "Show key supports A-Z."
 HIDE_KEY_HELP = "Hide key supports A-Z, Esc, Shift, or Shift+A-Z."
 WINDOW_TITLE = "MapHide"
@@ -203,60 +212,50 @@ def save_config(cfg, path=CONFIG_PATH):
         json.dump(cfg.to_dict(), file, indent=2)
 
 
-def describe_obs_connection_error(exc):
-    message = str(exc).lower()
-    auth_markers = ("auth", "authentication", "password", "identify", "4009")
-    connection_markers = (
-        "connection refused",
-        "actively refused",
-        "timed out",
-        "timeout",
-        "10061",
-        "10060",
-        "network name is no longer available",
-    )
-
-    if any(marker in message for marker in auth_markers):
-        return "Failed to connect to OBS. The OBS WebSocket password appears to be incorrect."
-    if any(marker in message for marker in connection_markers):
-        return "Failed to connect to OBS. Make sure OBS is open and the WebSocket server is available."
-    return "Failed to connect to OBS. Check that OBS is open and your connection settings are correct."
+class ObsConnectionError(Exception):
+    pass
 
 
-def is_auth_error_message(message):
-    normalized = message.lower()
-    return "password appears to be incorrect" in normalized or "password is incorrect" in normalized
+class ObsAuthError(ObsConnectionError):
+    pass
 
 
-def describe_obs_request_error(exc):
-    message = str(exc).lower()
-    connection_markers = (
-        "connection refused",
-        "actively refused",
-        "timed out",
-        "timeout",
-        "10061",
-        "10060",
-        "closed",
-        "reset by peer",
-    )
-    if any(marker in message for marker in connection_markers):
-        return "The connection to OBS was lost. Reconnect after OBS is available again."
-    return "OBS returned an error while reading the current scene."
+# What a lost link looks like by the time it reaches MapHide: obsws-python's own
+# timeout wrapper, websocket-client's closed/timeout family, the socket errors
+# underneath them, and - because OBS signals a rejected session by closing the
+# socket - an empty read that json cannot parse.
+OBS_TRANSPORT_ERRORS = (
+    OBSSDKTimeoutError,
+    websocket.WebSocketException,
+    OSError,
+    json.JSONDecodeError,
+)
 
 
 def connect_obs(host, port, password, timeout=3):
+    # The try holds a single third-party call, so a broad final clause cannot mask
+    # a mistake of ours - there is no MapHide logic inside it to go wrong.
     try:
         return ReqClient(host=host, port=port, password=password, timeout=timeout)
+    except OBSSDKTimeoutError as exc:
+        raise ObsConnectionError(OBS_UNREACHABLE) from exc
+    except OBSSDKError as exc:
+        # OBS closes the socket on a bad password rather than answering, so
+        # obsws-python reports it as a failed identify.
+        raise ObsAuthError(OBS_BAD_PASSWORD) from exc
+    except OSError as exc:
+        raise ObsConnectionError(OBS_UNREACHABLE) from exc
     except Exception as exc:
-        raise ConnectionError(describe_obs_connection_error(exc)) from exc
+        raise ObsConnectionError(OBS_SETTINGS_WRONG) from exc
 
 
 def find_scene_item_id_raw(client, scene_name, source_name):
     try:
         resp = client.send("GetSceneItemList", {"sceneName": scene_name}, raw=True)
-    except Exception as exc:
-        raise RuntimeError(describe_obs_request_error(exc)) from exc
+    except OBSSDKRequestError as exc:
+        raise ObsConnectionError(OBS_READ_REFUSED) from exc
+    except OBS_TRANSPORT_ERRORS as exc:
+        raise ObsConnectionError(OBS_LINK_LOST) from exc
 
     items = resp.get("sceneItems") or resp.get("scene_items") or []
     for item in items:
@@ -270,8 +269,10 @@ def find_scene_item_id_raw(client, scene_name, source_name):
 def get_current_program_scene_raw(client):
     try:
         resp = client.send("GetCurrentProgramScene", raw=True)
-    except Exception as exc:
-        raise RuntimeError(describe_obs_request_error(exc)) from exc
+    except OBSSDKRequestError as exc:
+        raise ObsConnectionError(OBS_READ_REFUSED) from exc
+    except OBS_TRANSPORT_ERRORS as exc:
+        raise ObsConnectionError(OBS_LINK_LOST) from exc
     return resp.get("currentProgramSceneName") or resp.get("current_program_scene_name")
 
 
@@ -281,14 +282,23 @@ def set_scene_item_enabled_raw(client, scene_name, scene_item_id, enabled):
         "sceneItemId": scene_item_id,
         "sceneItemEnabled": bool(enabled),
     }
-    return client.send("SetSceneItemEnabled", payload, raw=True)
+    # The one call that can strand the overlay on screen, and the only one that
+    # had no error handling at all.
+    try:
+        return client.send("SetSceneItemEnabled", payload, raw=True)
+    except OBSSDKRequestError as exc:
+        raise ObsConnectionError(OBS_WRITE_REFUSED) from exc
+    except OBS_TRANSPORT_ERRORS as exc:
+        raise ObsConnectionError(OBS_LINK_LOST) from exc
 
 
 def find_overlay_scene_items_raw(client, source_name):
     try:
         resp = client.send("GetSceneList", raw=True)
-    except Exception as exc:
-        raise RuntimeError(describe_obs_request_error(exc)) from exc
+    except OBSSDKRequestError as exc:
+        raise ObsConnectionError(OBS_READ_REFUSED) from exc
+    except OBS_TRANSPORT_ERRORS as exc:
+        raise ObsConnectionError(OBS_LINK_LOST) from exc
 
     scenes = resp.get("scenes") or resp.get("scene_list") or []
     scene_items = {}
@@ -458,12 +468,15 @@ class MapHideService:
                         announced_connection_failure = False
                         had_successful_connection = True
                         self._emit("status", "Connected to OBS.")
-                    except Exception as exc:
+                    except ObsConnectionError as exc:
                         error_message = str(exc)
                         if not announced_connection_failure:
                             self._emit("error", error_message)
                             announced_connection_failure = True
-                        if is_auth_error_message(error_message) or not had_successful_connection:
+                        # A wrong password will not start working on its own, and a
+                        # first attempt that never succeeded usually means the settings
+                        # are wrong. Both wait for the user instead of retrying forever.
+                        if isinstance(exc, ObsAuthError) or not had_successful_connection:
                             final_status_message = error_message
                             break
                         time.sleep(RECONNECT_DELAY)
@@ -598,11 +611,11 @@ class MapHideService:
                             hide_requested_at = None
 
                     time.sleep(POLL_INTERVAL)
-                except Exception as exc:
+                except ObsConnectionError as exc:
                     self._emit("error", str(exc))
                     try:
                         client.disconnect()
-                    except Exception:
+                    except (websocket.WebSocketException, OSError):
                         pass
                     client = None
                     # overlay_visible deliberately survives the drop. It is the only
@@ -614,16 +627,24 @@ class MapHideService:
                     show_key_was_down = False
                     hide_key_was_down = False
                     time.sleep(RECONNECT_DELAY)
+        except Exception as exc:
+            # Anything reaching here is a fault in MapHide rather than in the link to
+            # OBS, which the clauses above already handle. Report it instead of letting
+            # the worker thread die without a word; the block below still clears the
+            # overlay either way.
+            final_status_message = f"MapHide stopped after an unexpected error: {exc}"
         finally:
             if client is not None and scene_items:
                 try:
                     set_overlay_enabled_raw(client, scene_items, active_scene_name, False)
-                except Exception:
-                    pass
+                except ObsConnectionError:
+                    # The link died before the overlay could be cleared, so it may
+                    # still be on screen. Say so rather than stopping quietly.
+                    final_status_message = OBS_OVERLAY_MAY_REMAIN
             if client is not None:
                 try:
                     client.disconnect()
-                except Exception:
+                except (websocket.WebSocketException, OSError):
                     pass
 
             self._running = False
@@ -1503,7 +1524,7 @@ def run_headless():
     print(f"MapHide starting - reading config from {CONFIG_PATH}...")
     try:
         cfg = load_config()
-    except Exception as exc:
+    except (OSError, ValueError, KeyError) as exc:
         print("Failed to load config:", exc)
         print(
             'Example config:\n{\n'

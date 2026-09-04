@@ -1,5 +1,7 @@
 # Runtime dependencies (needed to run map_hider.py).
 # tkinter ships with Python on Windows and is not listed here.
 obsws-python==1.8.0
+# Pulled in by obsws-python; MapHide names its error types directly.
+websocket-client==1.9.0
 Pillow==12.2.0
 pystray==0.19.5

@@ -55,10 +55,10 @@ class AppConfig:
             "hide_delay_ms": self.hide_delay_ms,
         }
 
-    def hotkey_vk_code(self):
+    def show_vk_codes(self):
         return hotkey_to_vk_codes(self.hotkey, fallback=[HOTKEY_TO_VK["G"]])
 
-    def hide_hotkey_vk_code(self):
+    def hide_vk_codes(self):
         return hotkey_to_vk_codes(self.hide_hotkey, fallback=[HOTKEY_TO_VK["H"]])
 
 

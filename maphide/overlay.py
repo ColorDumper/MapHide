@@ -11,9 +11,9 @@ from .obs import (
     ObsConnectionError,
     connect_obs,
     disconnect_obs,
-    find_overlay_scene_items_raw,
-    get_current_program_scene_raw,
-    set_overlay_enabled_raw,
+    find_overlay_scene_items,
+    get_current_scene,
+    set_overlay_enabled,
 )
 
 POLL_INTERVAL = 0.005
@@ -72,8 +72,8 @@ class MapHideService:
         )
 
     def _run(self, cfg):
-        show_vk_codes = cfg.hotkey_vk_code()
-        hide_vk_codes = cfg.hide_hotkey_vk_code()
+        show_vk_codes = cfg.show_vk_codes()
+        hide_vk_codes = cfg.hide_vk_codes()
         client = None
         overlay_visible = False
         desired_visible = False
@@ -122,12 +122,12 @@ class MapHideService:
                 now = datetime.now()
                 try:
                     if (now - last_scene_refresh) >= timedelta(seconds=SCENE_REFRESH_INTERVAL):
-                        latest_scene_name = get_current_program_scene_raw(client)
+                        latest_scene_name = get_current_scene(client)
                         if latest_scene_name != active_scene_name:
                             active_scene_name = latest_scene_name
                             # Re-read every scene, not just this one: the source may have
                             # been added to a scene since the last look.
-                            scene_items = find_overlay_scene_items_raw(client, cfg.scene_item_name)
+                            scene_items = find_overlay_scene_items(client, cfg.scene_item_name)
                             item_id = scene_items.get(active_scene_name)
                             overlay_available = any(found is not None for found in scene_items.values())
                             hide_requested_at = None
@@ -157,7 +157,7 @@ class MapHideService:
                             # toggle mode the latched state is.
                             if not cfg.toggle_mode:
                                 desired_visible = is_hotkey_down(show_vk_codes)
-                            set_overlay_enabled_raw(
+                            set_overlay_enabled(
                                 client, scene_items, active_scene_name, desired_visible
                             )
                             overlay_visible = desired_visible
@@ -192,7 +192,7 @@ class MapHideService:
                     if overlay_available and desired_visible != overlay_visible:
                         settled = (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
                         if desired_visible and settled:
-                            set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
+                            set_overlay_enabled(client, scene_items, active_scene_name, True)
                             overlay_visible = True
                             last_action_time = now
                             self._emit("overlay", "Overlay shown.")
@@ -202,7 +202,7 @@ class MapHideService:
                             and hide_requested_at is not None
                             and (now - hide_requested_at) >= timedelta(milliseconds=cfg.hide_delay_ms)
                         ):
-                            set_overlay_enabled_raw(client, scene_items, active_scene_name, False)
+                            set_overlay_enabled(client, scene_items, active_scene_name, False)
                             overlay_visible = False
                             last_action_time = now
                             self._emit("overlay", "Overlay hidden.")
@@ -231,7 +231,7 @@ class MapHideService:
         finally:
             if client is not None and scene_items:
                 try:
-                    set_overlay_enabled_raw(client, scene_items, active_scene_name, False)
+                    set_overlay_enabled(client, scene_items, active_scene_name, False)
                 except ObsConnectionError:
                     # The link died before the overlay could be cleared, so it may
                     # still be on screen. Say so rather than stopping quietly.

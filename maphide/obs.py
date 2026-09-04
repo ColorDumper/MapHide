@@ -61,7 +61,7 @@ def connect_obs(host, port, password, timeout=3):
         raise ObsConnectionError(OBS_SETTINGS_WRONG) from exc
 
 
-def find_scene_item_id_raw(client, scene_name, source_name):
+def find_scene_item_id(client, scene_name, source_name):
     try:
         resp = client.send("GetSceneItemList", {"sceneName": scene_name}, raw=True)
     except OBSSDKRequestError as exc:
@@ -78,7 +78,7 @@ def find_scene_item_id_raw(client, scene_name, source_name):
     return None
 
 
-def get_current_program_scene_raw(client):
+def get_current_scene(client):
     try:
         resp = client.send("GetCurrentProgramScene", raw=True)
     except OBSSDKRequestError as exc:
@@ -88,7 +88,7 @@ def get_current_program_scene_raw(client):
     return resp.get("currentProgramSceneName") or resp.get("current_program_scene_name")
 
 
-def set_scene_item_enabled_raw(client, scene_name, scene_item_id, enabled):
+def set_scene_item_enabled(client, scene_name, scene_item_id, enabled):
     payload = {
         "sceneName": scene_name,
         "sceneItemId": scene_item_id,
@@ -104,7 +104,7 @@ def set_scene_item_enabled_raw(client, scene_name, scene_item_id, enabled):
         raise ObsConnectionError(OBS_LINK_LOST) from exc
 
 
-def find_overlay_scene_items_raw(client, source_name):
+def find_overlay_scene_items(client, source_name):
     try:
         resp = client.send("GetSceneList", raw=True)
     except OBSSDKRequestError as exc:
@@ -117,7 +117,7 @@ def find_overlay_scene_items_raw(client, source_name):
     for scene in scenes:
         scene_name = scene.get("sceneName") or scene.get("scene_name")
         if scene_name:
-            scene_items[scene_name] = find_scene_item_id_raw(client, scene_name, source_name)
+            scene_items[scene_name] = find_scene_item_id(client, scene_name, source_name)
     return scene_items
 
 
@@ -129,7 +129,7 @@ def disconnect_obs(client):
         pass
 
 
-def set_overlay_enabled_raw(client, scene_items, current_scene_name, enabled):
+def set_overlay_enabled(client, scene_items, current_scene_name, enabled):
     # The overlay covers one thing - whether the map is open - so it belongs in the
     # same state in every scene that carries the source. Keeping them all in step
     # means an OBS scene transition needs no work from MapHide and cannot catch the
@@ -139,4 +139,4 @@ def set_overlay_enabled_raw(client, scene_items, current_scene_name, enabled):
     for scene_name in ordered:
         scene_item_id = scene_items[scene_name]
         if scene_item_id is not None:
-            set_scene_item_enabled_raw(client, scene_name, scene_item_id, enabled)
+            set_scene_item_enabled(client, scene_name, scene_item_id, enabled)

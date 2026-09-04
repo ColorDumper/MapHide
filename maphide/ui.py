@@ -103,7 +103,7 @@ class MapHideApp:
         self.hotkey_var = tk.StringVar(value="G")
         self.hide_hotkey_var = tk.StringVar(value="H")
         self.toggle_mode_var = tk.BooleanVar(value=False)
-        self.hotkey_label_var = tk.StringVar(value="Hotkey")
+        self.hotkey_caption_var = tk.StringVar(value="Hotkey")
         self.hide_delay_var = tk.IntVar(value=DEFAULT_HIDE_DELAY_MS)
         self.hide_delay_label_var = tk.StringVar(value=f"{DEFAULT_HIDE_DELAY_MS} ms")
         self.show_host_var = tk.BooleanVar(value=False)
@@ -350,8 +350,8 @@ class MapHideApp:
             command=self._update_sensitive_visibility,
         ).grid(row=2, column=2, sticky="w", padx=(10, 0))
 
-        self.hotkey_label = ttk.Label(obs_frame, textvariable=self.hotkey_label_var)
-        self.hotkey_label.grid(row=3, column=0, sticky="w", pady=4, padx=(0, 10))
+        self.hotkey_caption = ttk.Label(obs_frame, textvariable=self.hotkey_caption_var)
+        self.hotkey_caption.grid(row=3, column=0, sticky="w", pady=4, padx=(0, 10))
 
         hotkey_controls = ttk.Frame(obs_frame)
         hotkey_controls.grid(row=3, column=1, columnspan=2, sticky="w", pady=4)
@@ -364,14 +364,14 @@ class MapHideApp:
         )
         self.hotkey_button.grid(row=0, column=0, sticky="w")
 
-        self.hide_hotkey_label = ttk.Label(hotkey_controls, text="Hide key")
+        self.hide_hotkey_caption = ttk.Label(hotkey_controls, text="Hide key")
         self.hide_hotkey_button = ttk.Button(
             hotkey_controls,
             text=self.hide_hotkey_var.get(),
             width=KEY_BUTTON_WIDTH,
             command=lambda: self._start_key_capture("hide"),
         )
-        self.hide_hotkey_label.grid(row=0, column=1, sticky="w", padx=(8, 6))
+        self.hide_hotkey_caption.grid(row=0, column=1, sticky="w", padx=(8, 6))
         self.hide_hotkey_button.grid(row=0, column=2, sticky="w")
 
         self.toggle_mode_check = ttk.Checkbutton(
@@ -706,12 +706,12 @@ class MapHideApp:
 
     def _update_toggle_mode_ui(self):
         toggle_mode = self.toggle_mode_var.get()
-        self.hotkey_label_var.set("Show key" if toggle_mode else "Hotkey")
+        self.hotkey_caption_var.set("Show key" if toggle_mode else "Hotkey")
         if toggle_mode:
-            self.hide_hotkey_label.grid()
+            self.hide_hotkey_caption.grid()
             self.hide_hotkey_button.grid()
         else:
-            self.hide_hotkey_label.grid_remove()
+            self.hide_hotkey_caption.grid_remove()
             self.hide_hotkey_button.grid_remove()
             if self.key_capture_target == "hide":
                 self._stop_key_capture()
@@ -826,11 +826,11 @@ class MapHideApp:
 
     def toggle_settings_panel(self):
         if self.settings_visible:
-            self.hide_settings_panel()
+            self._hide_settings_panel()
         else:
-            self.show_settings_panel()
+            self._show_settings_panel()
 
-    def show_settings_panel(self):
+    def _show_settings_panel(self):
         if self.settings_visible:
             return
         self.settings_panel.grid()
@@ -838,7 +838,7 @@ class MapHideApp:
         self.settings_button.configure(text="< Settings")
         self._apply_window_size(self.expanded_width)
 
-    def hide_settings_panel(self):
+    def _hide_settings_panel(self):
         if not self.settings_visible:
             return
         self._stop_key_capture()
@@ -881,7 +881,7 @@ class MapHideApp:
         draw.rectangle((38, 30, 46, 46), fill="#d9ed92")
         return image
 
-    def hide_to_tray(self):
+    def _hide_to_tray(self):
         if self.tray_icon is None:
             self.exit_requested = True
             self.service.stop()
@@ -892,7 +892,7 @@ class MapHideApp:
         self.root.withdraw()
         self.status_var.set("MapHide is still running in the system tray.")
 
-    def show_window(self):
+    def _show_window(self):
         current_state = self.root.state()
         if current_state == "withdrawn":
             self.root.deiconify()
@@ -904,12 +904,12 @@ class MapHideApp:
         self.root.after(0, self.root.focus_force)
 
     def _on_tray_show(self, icon=None, item=None):
-        self.root.after(0, self.show_window)
+        self.root.after(0, self._show_window)
 
     def _on_tray_exit(self, icon=None, item=None):
-        self.root.after(0, self.exit_app)
+        self.root.after(0, self._exit_app)
 
-    def exit_app(self):
+    def _exit_app(self):
         self.exit_requested = True
         self.service.stop()
         self.service.wait(timeout=1.5)
@@ -920,7 +920,7 @@ class MapHideApp:
     def on_close(self):
         if self.exit_requested:
             return
-        self.hide_to_tray()
+        self._hide_to_tray()
 
 
 

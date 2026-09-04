@@ -47,7 +47,6 @@ from .paths import (
     APP_USER_MODEL_ID,
     APP_VERSION,
     ICON_ICO_PATH,
-    ICON_PNG_PATH,
     ICON_RUNTIME_PNG_PATH,
     ICON_TRAY_PNG_PATH,
     ICON_WINDOW_PNG_PATH,
@@ -455,10 +454,8 @@ class MapHideApp:
         try:
             if ICON_WINDOW_PNG_PATH.exists():
                 icon_photo_path = ICON_WINDOW_PNG_PATH
-            elif ICON_RUNTIME_PNG_PATH.exists():
-                icon_photo_path = ICON_RUNTIME_PNG_PATH
             else:
-                icon_photo_path = ICON_PNG_PATH
+                icon_photo_path = ICON_RUNTIME_PNG_PATH
             if icon_photo_path.exists():
                 self.window_icon_image = tk.PhotoImage(file=str(icon_photo_path))
                 self.root.iconphoto(True, self.window_icon_image)
@@ -881,10 +878,8 @@ class MapHideApp:
     def _create_tray_image(self):
         if ICON_TRAY_PNG_PATH.exists():
             icon_image_path = ICON_TRAY_PNG_PATH
-        elif ICON_RUNTIME_PNG_PATH.exists():
-            icon_image_path = ICON_RUNTIME_PNG_PATH
         else:
-            icon_image_path = ICON_PNG_PATH
+            icon_image_path = ICON_RUNTIME_PNG_PATH
         if icon_image_path.exists():
             try:
                 return Image.open(icon_image_path).convert("RGBA")

@@ -8,7 +8,7 @@ a = Analysis(
     ['map_hider.py'],
     pathex=[],
     binaries=[],
-    datas=[('MapHide.ico', '.'), ('MapHide_Master.png', '.'), ('PaintTwo.png', '.'), ('assets', 'assets')],
+    datas=[('MapHide.ico', '.'), ('PaintTwo.png', '.'), ('assets', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

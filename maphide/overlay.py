@@ -23,6 +23,16 @@ RECONNECT_DELAY = 2.0
 OBS_OVERLAY_MAY_REMAIN = "MapHide stopped, but lost the connection before it could hide the overlay. Check OBS."
 
 
+def scene_status(cfg, scene_name):
+    if cfg.toggle_mode:
+        return (
+            f"Scene: {scene_name}. "
+            f"{cfg.hotkey} shows '{cfg.scene_item_name}', "
+            f"{cfg.hide_hotkey} hides it."
+        )
+    return f"Scene: {scene_name}. Hold {cfg.hotkey} for '{cfg.scene_item_name}'."
+
+
 def human_ts():
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
@@ -138,18 +148,7 @@ class MapHideService:
                                     f"Source '{cfg.scene_item_name}' not found.",
                                 )
                             else:
-                                if cfg.toggle_mode:
-                                    status_message = (
-                                        f"Scene: {active_scene_name}. "
-                                        f"{cfg.hotkey} shows '{cfg.scene_item_name}', "
-                                        f"{cfg.hide_hotkey} hides it."
-                                    )
-                                else:
-                                    status_message = (
-                                        f"Scene: {active_scene_name}. "
-                                        f"Hold {cfg.hotkey} for '{cfg.scene_item_name}'."
-                                    )
-                                self._emit("status", status_message)
+                                self._emit("status", scene_status(cfg, active_scene_name))
                             # OBS's actual state is unknown at this point: it restores
                             # sources enabled after a restart, and a dropped connection can
                             # strand one visible. Send our state rather than assume it

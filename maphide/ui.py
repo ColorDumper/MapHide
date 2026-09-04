@@ -407,7 +407,7 @@ class MapHideApp:
             from_=MIN_HIDE_DELAY_MS,
             to=MAX_HIDE_DELAY_MS,
             variable=self.hide_delay_var,
-            command=self._on_hide_delay_changed,
+            command=lambda _value: self._update_hide_delay_label(),
         )
         self.hide_delay_scale.grid(row=0, column=0, sticky="ew")
         ttk.Label(
@@ -811,9 +811,6 @@ class MapHideApp:
             return key
         labels = [*modifiers, key]
         return "+".join(labels)
-
-    def _on_hide_delay_changed(self, value=None):
-        self._update_hide_delay_label()
 
     def _update_hide_delay_label(self):
         self.hide_delay_label_var.set(f"{self._clamp_hide_delay(self.hide_delay_var.get())} ms")

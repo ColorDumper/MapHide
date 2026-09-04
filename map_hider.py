@@ -25,7 +25,7 @@ from pathlib import Path
 try:
     import tkinter as tk
     from tkinter import messagebox, ttk
-except Exception:
+except ImportError:
     tk = None
     ttk = None
     messagebox = None
@@ -33,7 +33,7 @@ except Exception:
 try:
     import pystray
     from PIL import Image, ImageDraw, ImageTk
-except Exception:
+except ImportError:
     pystray = None
     Image = None
     ImageDraw = None
@@ -41,7 +41,7 @@ except Exception:
 
 try:
     from obsws_python import ReqClient
-except Exception as e:
+except ImportError as e:
     print("ERROR: obsws_python not installed or import failed:", e)
     print("Install in your venv: pip install obsws-python")
     sys.exit(1)
@@ -367,10 +367,7 @@ def human_ts():
 
 
 def set_windows_app_id():
-    try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
-    except Exception:
-        pass
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
 
 
 class MapHideService:
@@ -688,10 +685,7 @@ class MapHideApp:
 
     def _configure_styles(self):
         style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
+        style.theme_use("clam")
 
         self.root.configure(bg=COLOR_BG)
 
@@ -995,7 +989,7 @@ class MapHideApp:
         try:
             if ICON_ICO_PATH.exists():
                 self.root.iconbitmap(default=str(ICON_ICO_PATH))
-        except Exception:
+        except tk.TclError:
             pass
         try:
             if ICON_WINDOW_PNG_PATH.exists():
@@ -1007,7 +1001,7 @@ class MapHideApp:
             if icon_photo_path.exists():
                 self.window_icon_image = tk.PhotoImage(file=str(icon_photo_path))
                 self.root.iconphoto(True, self.window_icon_image)
-        except Exception:
+        except tk.TclError:
             pass
 
     def _apply_footer_watermark(self):
@@ -1023,7 +1017,7 @@ class MapHideApp:
             watermark.thumbnail(WATERMARK_MAX_SIZE, Image.Resampling.LANCZOS)
             self.footer_brand_image = ImageTk.PhotoImage(watermark)
             self.footer_brand.configure(image=self.footer_brand_image, text="")
-        except Exception:
+        except (OSError, tk.TclError):
             pass
 
     def _measure_window_sizes(self):
@@ -1059,7 +1053,7 @@ class MapHideApp:
     def _load_initial_config(self):
         try:
             cfg = load_config()
-        except Exception:
+        except (OSError, ValueError, KeyError):
             cfg = default_config()
             self.status_var.set("Config not loaded. Fill in values and save settings.")
         self._set_form(cfg)
@@ -1264,7 +1258,7 @@ class MapHideApp:
             return
         try:
             self.root.focus_set()
-        except Exception:
+        except tk.TclError:
             pass
 
     def _update_help_text(self):
@@ -1312,7 +1306,7 @@ class MapHideApp:
             self.status_var.set(HIDE_KEY_HELP)
         try:
             self.root.focus_force()
-        except Exception:
+        except tk.TclError:
             pass
 
     def _stop_key_capture(self):
@@ -1452,7 +1446,7 @@ class MapHideApp:
         if icon_image_path.exists():
             try:
                 return Image.open(icon_image_path).convert("RGBA")
-            except Exception:
+            except OSError:
                 pass
 
         image = Image.new("RGB", (64, 64), "#101820")

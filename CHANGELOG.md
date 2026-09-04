@@ -22,6 +22,8 @@ All notable changes to MapHide are documented here.
   rather than as an OBS error.
 - Redrew the footer mark at the size it is shown at, and trimmed unused
   space from the bottom and right of the settings window.
+- Fixed headless mode (`--headless`) exiting with an error half a second
+  after starting, instead of running until you stop it.
 - Internal restructuring: the app is now split into modules by job. No
   change to how MapHide behaves.
 

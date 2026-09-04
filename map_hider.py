@@ -11,6 +11,7 @@ The application itself lives in the maphide package:
     ui.py       the settings window and tray icon
 """
 
+import queue
 import sys
 
 from maphide.config import load_config
@@ -56,7 +57,14 @@ def run_headless():
 
     try:
         while True:
-            event = service.events.get(timeout=EVENT_POLL_SECONDS)
+            # The wait has a timeout so Ctrl+C is noticed on Windows, which means
+            # a quiet spell is normal rather than a reason to stop.
+            try:
+                event = service.events.get(timeout=EVENT_POLL_SECONDS)
+            except queue.Empty:
+                if service.is_running:
+                    continue
+                break
             print(f"{event['timestamp']}  {event['message']}")
             if event["kind"] in {"error", "stopped"} and not service.is_running:
                 break

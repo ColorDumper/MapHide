@@ -24,8 +24,7 @@ All notable changes to MapHide are documented here.
   space from the bottom and right of the settings window.
 - Fixed headless mode (`--headless`) exiting with an error half a second
   after starting, instead of running until you stop it.
-- Internal restructuring: the app is now split into modules by job. No
-  change to how MapHide behaves.
+- A large internal cleanup. Nothing about how MapHide works has changed.
 
 ## v0.2.3 - 2026-08-27
 

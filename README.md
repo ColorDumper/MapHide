@@ -193,7 +193,7 @@ The default is `120 ms`.
 
 ## Config Location
 
-MapHide stores runtime settings here:
+MapHide stores your settings here:
 
 ```text
 %AppData%\MapHide\config.json
@@ -205,9 +205,7 @@ Example:
 C:\Users\YourName\AppData\Roaming\MapHide\config.json
 ```
 
-You normally never edit this by hand — the app writes it after you save settings in the UI.
-
-The repo ships `config.example.json` as a template. If you run MapHide from source and want to pre-fill settings, copy it to `config.json` in the project folder and edit that copy. Your local `config.json` is gitignored, so your OBS host and password are never committed.
+You never need to edit this by hand — MapHide writes it when you click `Save Settings`. If you want to start over, use `Reset Defaults` in the settings panel.
 
 ## Notes
 

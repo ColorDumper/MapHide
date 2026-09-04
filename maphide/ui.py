@@ -58,10 +58,6 @@ STATUS_AREA_WIDTH = 300
 STATUS_AREA_HEIGHT = 72
 HELP_AREA_WIDTH = 340
 HELP_AREA_HEIGHT = 44
-# Tk's requested size comes up short of what the panel actually needs once it
-# is mapped, so the measured figures get this much added on.
-WINDOW_EXTRA_WIDTH = 32
-WINDOW_EXTRA_HEIGHT = 56
 EVENT_DRAIN_INTERVAL_MS = 100
 AUTO_CONNECT_DELAY_MS = 250
 RESTART_POLL_INTERVAL_MS = 50
@@ -511,8 +507,8 @@ class MapHideApp:
 
         self.settings_panel.grid()
         self.root.update_idletasks()
-        self.expanded_width = self.root.winfo_reqwidth() + WINDOW_EXTRA_WIDTH
-        self.window_height = max(self.window_height, self.root.winfo_reqheight()) + WINDOW_EXTRA_HEIGHT
+        self.expanded_width = self.root.winfo_reqwidth()
+        self.window_height = max(self.window_height, self.root.winfo_reqheight())
 
         self.settings_panel.grid_remove()
 

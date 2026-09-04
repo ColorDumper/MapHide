@@ -44,11 +44,11 @@ jobs:
         shell: pwsh
         run: |
           $tag = '${{ github.ref_name }}'
-          $line = Select-String -Path map_hider.py -Pattern 'APP_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
+          $line = Select-String -Path maphide/paths.py -Pattern 'APP_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
           $appVersion = $line.Matches[0].Groups[1].Value
           Write-Host "tag=$tag  APP_VERSION=$appVersion"
           if ($tag -ne $appVersion) {
-            Write-Error "Tag '$tag' does not match APP_VERSION '$appVersion' in map_hider.py. Bump the version strings before tagging."
+            Write-Error "Tag '$tag' does not match APP_VERSION '$appVersion' in maphide/paths.py. Bump the version strings before tagging."
             exit 1
           }
 

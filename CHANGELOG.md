@@ -2,6 +2,29 @@
 
 All notable changes to MapHide are documented here.
 
+## v0.2.4 - 2026-09-04
+
+- Fixed the overlay staying on screen after the connection to OBS dropped.
+  MapHide now sets the source to match your keybind every time it connects,
+  so a lost connection no longer leaves the map covered.
+- Fixed the overlay being left visible in a scene after switching away from
+  it, and coming back visible after OBS restarts.
+- Fixed the overlay flickering during scene transitions. The source is now
+  kept in step in every scene that contains it, so changing scenes needs no
+  work and never catches the incoming scene uncovered.
+- Fixed toggle mode when one key both shows and hides: pressing it quickly
+  could finish with the map open and the overlay already gone.
+- Fixed the Start and Stop buttons showing the wrong state after saving
+  settings while MapHide was running.
+- Fixed the taskbar icon, which was blurry and briefly showed a placeholder
+  on first launch.
+- A connection that drops mid-session is now reported as a lost connection
+  rather than as an OBS error.
+- Redrew the footer mark at the size it is shown at, and trimmed unused
+  space from the bottom and right of the settings window.
+- Internal restructuring: the app is now split into modules by job. No
+  change to how MapHide behaves.
+
 ## v0.2.3 - 2026-08-27
 
 - Reworked packaging to improve compatibility and reduce antivirus false

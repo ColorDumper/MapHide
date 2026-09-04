@@ -10,7 +10,9 @@ HOTKEY_OPTIONS = [
 HOTKEY_TO_VK = dict(HOTKEY_OPTIONS)
 SHOW_KEY_LABELS = tuple(chr(code) for code in range(ord("A"), ord("Z") + 1))
 STANDALONE_HIDE_KEY_LABELS = ("ESC", "SHIFT")
-MODIFIER_LABELS = ("SHIFT",)
+# Windows reports the key's current state in the high bit; the low bit is a
+# was-pressed-since-last-call flag MapHide does not use.
+KEY_DOWN_MASK = 0x8000
 MODIFIER_KEYSYMS = {
     "SHIFT_L": "SHIFT",
     "SHIFT_R": "SHIFT",
@@ -18,9 +20,8 @@ MODIFIER_KEYSYMS = {
 SPECIAL_KEYSYMS = {
     "ESCAPE": "ESC",
 }
-EVENT_STATE_MODIFIERS = (
-    ("SHIFT", 0x0001),
-)
+# Tk reports which modifiers were held as bits on a key event's state field.
+MODIFIER_STATE_MASKS = {"SHIFT": 0x0001}
 
 SHOW_KEY_HELP = "Show key supports A-Z."
 HIDE_KEY_HELP = "Hide key supports A-Z, Esc, Shift, or Shift+A-Z."
@@ -69,7 +70,7 @@ def normalize_event_key(keysym):
 
 def is_key_down(vk_code):
     state = ctypes.windll.user32.GetAsyncKeyState(vk_code)
-    return (state & 0x8000) != 0
+    return (state & KEY_DOWN_MASK) != 0
 
 
 def is_hotkey_down(vk_codes):

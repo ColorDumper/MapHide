@@ -17,6 +17,9 @@ from maphide.config import load_config
 from maphide.overlay import MapHideService
 from maphide.paths import CONFIG_PATH
 
+EVENT_POLL_SECONDS = 0.5
+SHUTDOWN_WAIT_SECONDS = 2
+
 
 def run_headless():
     print(f"MapHide starting - reading config from {CONFIG_PATH}...")
@@ -53,14 +56,14 @@ def run_headless():
 
     try:
         while True:
-            event = service.events.get(timeout=0.5)
+            event = service.events.get(timeout=EVENT_POLL_SECONDS)
             print(f"{event['timestamp']}  {event['message']}")
             if event["kind"] in {"error", "stopped"} and not service.is_running:
                 break
     except KeyboardInterrupt:
         print("\nExiting - stopping service...")
         service.stop()
-        service.wait(timeout=2)
+        service.wait(timeout=SHUTDOWN_WAIT_SECONDS)
 
 
 

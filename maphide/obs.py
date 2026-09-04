@@ -15,6 +15,9 @@ except ImportError as e:
 
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
+# Applied to the socket, so it bounds the initial connect and every request
+# after it. A stalled streaming PC holds the worker for up to this long.
+CONNECT_TIMEOUT = 3
 OBS_BAD_PASSWORD = "Failed to connect to OBS. The OBS WebSocket password appears to be incorrect."
 OBS_UNREACHABLE = "Failed to connect to OBS. Make sure OBS is open and the WebSocket server is available."
 OBS_SETTINGS_WRONG = "Failed to connect to OBS. Check that OBS is open and your connection settings are correct."
@@ -44,7 +47,7 @@ OBS_TRANSPORT_ERRORS = (
 )
 
 
-def connect_obs(host, port, password, timeout=3):
+def connect_obs(host, port, password, timeout=CONNECT_TIMEOUT):
     # The try holds a single third-party call, so a broad final clause cannot mask
     # a mistake of ours - there is no MapHide logic inside it to go wrong.
     try:

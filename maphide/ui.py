@@ -34,9 +34,8 @@ from .config import (
     save_config,
 )
 from .hotkeys import (
-    EVENT_STATE_MODIFIERS,
     HIDE_KEY_HELP,
-    MODIFIER_LABELS,
+    MODIFIER_STATE_MASKS,
     SHOW_KEY_HELP,
     is_valid_hide_hotkey,
     is_valid_show_hotkey,
@@ -44,6 +43,7 @@ from .hotkeys import (
 )
 from .overlay import MapHideService
 from .paths import (
+    APP_NAME,
     APP_USER_MODEL_ID,
     APP_VERSION,
     ICON_ICO_PATH,
@@ -59,8 +59,23 @@ STATUS_AREA_WIDTH = 300
 STATUS_AREA_HEIGHT = 72
 HELP_AREA_WIDTH = 340
 HELP_AREA_HEIGHT = 44
+# Tk's requested size comes up short of what the panel actually needs once it
+# is mapped, so the measured figures get this much added on.
 WINDOW_EXTRA_WIDTH = 32
 WINDOW_EXTRA_HEIGHT = 56
+EVENT_DRAIN_INTERVAL_MS = 100
+AUTO_CONNECT_DELAY_MS = 250
+RESTART_POLL_INTERVAL_MS = 50
+SERVICE_STOP_WAIT = 1.5
+KEY_CAPTURE_PROMPT = "Press key..."
+KEY_UNSET_LABEL = "Select"
+SETTINGS_SHOW_LABEL = "Settings >"
+SETTINGS_HIDE_LABEL = "< Settings"
+FOCUSABLE_WIDGET_CLASSES = ("TEntry", "Entry")
+TRAY_FALLBACK_SIZE = (64, 64)
+COLOR_TRAY_BG = "#101820"
+COLOR_TRAY_TILE = "#2d6a4f"
+COLOR_TRAY_MARK = "#d9ed92"
 WATERMARK_MAX_SIZE = (64, 40)
 WINDOW_TITLE = "MapHide"
 COLOR_BG = "#12161d"
@@ -127,7 +142,7 @@ class MapHideApp:
         self.root.bind_all("<KeyRelease>", self._handle_key_capture_release, add="+")
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._setup_tray()
-        self.root.after(100, self._drain_events)
+        self.root.after(EVENT_DRAIN_INTERVAL_MS, self._drain_events)
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -226,7 +241,7 @@ class MapHideApp:
             padx=(6, 0),
             pady=(0, 1),
         )
-        self.settings_button = ttk.Button(header_row, text="Settings >", command=self.toggle_settings_panel)
+        self.settings_button = ttk.Button(header_row, text=SETTINGS_SHOW_LABEL, command=self.toggle_settings_panel)
         self.settings_button.grid(row=0, column=1, sticky="e")
 
         controls_frame = ttk.LabelFrame(left_panel, text="Controls", padding=12)
@@ -479,7 +494,9 @@ class MapHideApp:
 
         self.key_capture_target = None
         self.toggle_mode_var.set(True)
-        self.hotkey_var.set("Press key...")
+        # Measured against the widest content the panel can hold, so the window
+        # never has to resize once a longer key name is chosen.
+        self.hotkey_var.set(KEY_CAPTURE_PROMPT)
         self.hide_hotkey_var.set("SHIFT+Z")
         self._update_toggle_mode_ui()
 
@@ -504,7 +521,7 @@ class MapHideApp:
             self.status_var.set("Config not loaded. Fill in values and save settings.")
         self._set_form(cfg)
         if cfg.auto_connect:
-            self.root.after(250, self.start_service)
+            self.root.after(AUTO_CONNECT_DELAY_MS, self.start_service)
 
     def _set_form(self, cfg):
         cfg = replace(
@@ -629,13 +646,13 @@ class MapHideApp:
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="disabled")
         self.service.stop()
-        self.root.after(50, self._finish_service_restart)
+        self.root.after(RESTART_POLL_INTERVAL_MS, self._finish_service_restart)
 
     def _finish_service_restart(self):
         # The worker clears its running flag on the way out, so wait for it
         # rather than starting a second one on top of it.
         if self.service.is_running:
-            self.root.after(50, self._finish_service_restart)
+            self.root.after(RESTART_POLL_INTERVAL_MS, self._finish_service_restart)
             return
 
         cfg = self.pending_restart_config
@@ -675,7 +692,7 @@ class MapHideApp:
                     self.start_button.configure(state="normal")
                     self.stop_button.configure(state="disabled")
 
-        self.root.after(100, self._drain_events)
+        self.root.after(EVENT_DRAIN_INTERVAL_MS, self._drain_events)
 
     def _show_error(self, title, message):
         if messagebox is not None:
@@ -686,8 +703,7 @@ class MapHideApp:
         if not hasattr(widget, "winfo_class"):
             return
         widget_class = widget.winfo_class()
-        focusable_inputs = {"TEntry", "Entry"}
-        if widget_class in focusable_inputs:
+        if widget_class in FOCUSABLE_WIDGET_CLASSES:
             return
         try:
             self.root.focus_set()
@@ -720,10 +736,10 @@ class MapHideApp:
     def _sync_key_buttons(self):
         if hasattr(self, "hotkey_button"):
             if self.key_capture_target != "show":
-                self.hotkey_button.configure(text=self.hotkey_var.get().strip().upper() or "Select")
+                self.hotkey_button.configure(text=self.hotkey_var.get().strip().upper() or KEY_UNSET_LABEL)
         if hasattr(self, "hide_hotkey_button"):
             if self.key_capture_target != "hide":
-                self.hide_hotkey_button.configure(text=self.hide_hotkey_var.get().strip().upper() or "Select")
+                self.hide_hotkey_button.configure(text=self.hide_hotkey_var.get().strip().upper() or KEY_UNSET_LABEL)
 
     def _start_key_capture(self, target):
         if self.key_capture_target == target:
@@ -732,7 +748,7 @@ class MapHideApp:
         self._stop_key_capture()
         self.key_capture_target = target
         button = self.hotkey_button if target == "show" else self.hide_hotkey_button
-        button.configure(text="Press key...")
+        button.configure(text=KEY_CAPTURE_PROMPT)
         if target == "show":
             self.status_var.set(SHOW_KEY_HELP)
         else:
@@ -744,9 +760,9 @@ class MapHideApp:
 
     def _stop_key_capture(self):
         if self.key_capture_target == "show" and hasattr(self, "hotkey_button"):
-            self.hotkey_button.configure(text=self.hotkey_var.get().strip().upper() or "Select")
+            self.hotkey_button.configure(text=self.hotkey_var.get().strip().upper() or KEY_UNSET_LABEL)
         elif self.key_capture_target == "hide" and hasattr(self, "hide_hotkey_button"):
-            self.hide_hotkey_button.configure(text=self.hide_hotkey_var.get().strip().upper() or "Select")
+            self.hide_hotkey_button.configure(text=self.hide_hotkey_var.get().strip().upper() or KEY_UNSET_LABEL)
         self.key_capture_target = None
 
     def _handle_key_capture_press(self, event):
@@ -788,10 +804,10 @@ class MapHideApp:
             return None
         modifiers = [
             label
-            for label, mask in EVENT_STATE_MODIFIERS
+            for label, mask in MODIFIER_STATE_MASKS.items()
             if (event.state & mask) and label != key
         ]
-        if key in MODIFIER_LABELS:
+        if key in MODIFIER_STATE_MASKS:
             return key
         labels = [*modifiers, key]
         return "+".join(labels)
@@ -835,7 +851,7 @@ class MapHideApp:
             return
         self.settings_panel.grid()
         self.settings_visible = True
-        self.settings_button.configure(text="< Settings")
+        self.settings_button.configure(text=SETTINGS_HIDE_LABEL)
         self._apply_window_size(self.expanded_width)
 
     def _hide_settings_panel(self):
@@ -843,7 +859,7 @@ class MapHideApp:
             return
         self._stop_key_capture()
         self.settings_visible = False
-        self.settings_button.configure(text="Settings >")
+        self.settings_button.configure(text=SETTINGS_SHOW_LABEL)
         self.settings_panel.grid_remove()
         self._apply_window_size(self.collapsed_width)
 
@@ -856,7 +872,7 @@ class MapHideApp:
             pystray.MenuItem("Show", self._on_tray_show, default=True),
             pystray.MenuItem("Exit", self._on_tray_exit),
         )
-        self.tray_icon = pystray.Icon("MapHide", self._create_tray_image(), WINDOW_TITLE, menu)
+        self.tray_icon = pystray.Icon(APP_NAME, self._create_tray_image(), WINDOW_TITLE, menu)
         self.tray_thread = threading.Thread(target=self.tray_icon.run, name="TrayIcon", daemon=True)
         self.tray_thread.start()
 
@@ -873,19 +889,19 @@ class MapHideApp:
             except OSError:
                 pass
 
-        image = Image.new("RGB", (64, 64), "#101820")
+        image = Image.new("RGB", TRAY_FALLBACK_SIZE, COLOR_TRAY_BG)
         draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle((8, 8, 56, 56), radius=12, fill="#2d6a4f")
-        draw.rectangle((18, 18, 46, 26), fill="#d9ed92")
-        draw.rectangle((18, 30, 34, 46), fill="#d9ed92")
-        draw.rectangle((38, 30, 46, 46), fill="#d9ed92")
+        draw.rounded_rectangle((8, 8, 56, 56), radius=12, fill=COLOR_TRAY_TILE)
+        draw.rectangle((18, 18, 46, 26), fill=COLOR_TRAY_MARK)
+        draw.rectangle((18, 30, 34, 46), fill=COLOR_TRAY_MARK)
+        draw.rectangle((38, 30, 46, 46), fill=COLOR_TRAY_MARK)
         return image
 
     def _hide_to_tray(self):
         if self.tray_icon is None:
             self.exit_requested = True
             self.service.stop()
-            self.service.wait(timeout=1.5)
+            self.service.wait(timeout=SERVICE_STOP_WAIT)
             self.root.destroy()
             return
 
@@ -912,7 +928,7 @@ class MapHideApp:
     def _exit_app(self):
         self.exit_requested = True
         self.service.stop()
-        self.service.wait(timeout=1.5)
+        self.service.wait(timeout=SERVICE_STOP_WAIT)
         if self.tray_icon is not None:
             self.tray_icon.stop()
         self.root.destroy()

@@ -451,16 +451,19 @@ class MapHideApp:
                 self.root.iconbitmap(default=str(ICON_ICO_PATH))
         except tk.TclError:
             pass
-        try:
-            if ICON_WINDOW_PNG_PATH.exists():
-                icon_photo_path = ICON_WINDOW_PNG_PATH
-            else:
-                icon_photo_path = ICON_RUNTIME_PNG_PATH
-            if icon_photo_path.exists():
-                self.window_icon_image = tk.PhotoImage(file=str(icon_photo_path))
-                self.root.iconphoto(True, self.window_icon_image)
-        except tk.TclError:
-            pass
+        # Every size we ship, largest first. Handing Windows only the 32px image
+        # left it upscaling that for the taskbar, which looked soft.
+        icon_paths = [
+            path
+            for path in (ICON_RUNTIME_PNG_PATH, ICON_TRAY_PNG_PATH, ICON_WINDOW_PNG_PATH)
+            if path.exists()
+        ]
+        if icon_paths:
+            try:
+                self.window_icon_images = [tk.PhotoImage(file=str(p)) for p in icon_paths]
+                self.root.iconphoto(True, *self.window_icon_images)
+            except tk.TclError:
+                pass
 
     def _apply_footer_watermark(self):
         if not hasattr(self, "footer_brand"):

@@ -631,8 +631,7 @@ class MapHideApp:
             return
 
         self.status_var.set("Starting...")
-        self.start_button.configure(state="disabled")
-        self.stop_button.configure(state="normal")
+        self._sync_service_buttons()
 
     def stop_service(self):
         self.service.stop()
@@ -643,8 +642,7 @@ class MapHideApp:
         if self.restart_pending:
             return
         self.restart_pending = True
-        self.start_button.configure(state="disabled")
-        self.stop_button.configure(state="disabled")
+        self._sync_service_buttons()
         self.service.stop()
         self.root.after(RESTART_POLL_INTERVAL_MS, self._finish_service_restart)
 
@@ -662,12 +660,21 @@ class MapHideApp:
             self.service.start(cfg)
         except RuntimeError as exc:
             self.status_var.set(str(exc))
-            self.start_button.configure(state="normal")
-            self.stop_button.configure(state="disabled")
-            return
+        self._sync_service_buttons()
 
-        self.start_button.configure(state="disabled")
-        self.stop_button.configure(state="normal")
+    def _sync_service_buttons(self):
+        # Derived from what the service is doing, not from the event stream. A
+        # restart stops and starts the same service, so its "stopped" event can
+        # arrive after the restart has already finished; acting on that event
+        # switched the buttons back while MapHide was still running.
+        running = self.service.is_running
+        wanted = {
+            self.start_button: "disabled" if running or self.restart_pending else "normal",
+            self.stop_button: "normal" if running and not self.restart_pending else "disabled",
+        }
+        for button, state in wanted.items():
+            if str(button.cget("state")) != state:
+                button.configure(state=state)
 
     def _drain_events(self):
         while True:
@@ -688,10 +695,8 @@ class MapHideApp:
                 self.status_var.set(message)
             elif kind == "stopped":
                 self.status_var.set(message)
-                if not self.restart_pending:
-                    self.start_button.configure(state="normal")
-                    self.stop_button.configure(state="disabled")
 
+        self._sync_service_buttons()
         self.root.after(EVENT_DRAIN_INTERVAL_MS, self._drain_events)
 
     def _show_error(self, title, message):

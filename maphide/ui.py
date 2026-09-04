@@ -22,6 +22,8 @@ except ImportError:
     ImageDraw = None
     ImageTk = None
 
+from dataclasses import replace
+
 from .config import (
     DEFAULT_HIDE_DELAY_MS,
     MAX_HIDE_DELAY_MS,
@@ -89,7 +91,6 @@ class MapHideApp:
         self.settings_visible = False
         self.restart_pending = False
         self.pending_restart_config = None
-        self.restart_service_ref = None
         self.reset_confirm_pending = False
         self.collapsed_width = 0
         self.expanded_width = 0
@@ -111,9 +112,7 @@ class MapHideApp:
         self.auto_connect_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle")
         self.help_text_var = tk.StringVar(value="Hold G to show the overlay. Release G to hide it.")
-        self.active_hotkey_label = "G"
-        self.active_hide_hotkey_label = "H"
-        self.active_toggle_mode = False
+        self.running_config = default_config()
         self.key_capture_target = None
 
         self._configure_styles()
@@ -508,19 +507,23 @@ class MapHideApp:
             self.root.after(250, self.start_service)
 
     def _set_form(self, cfg):
+        cfg = replace(
+            cfg,
+            hotkey=cfg.hotkey if is_valid_show_hotkey(cfg.hotkey) else "G",
+            hide_hotkey=cfg.hide_hotkey if is_valid_hide_hotkey(cfg.hide_hotkey) else "H",
+            hide_delay_ms=self._clamp_hide_delay(cfg.hide_delay_ms),
+        )
+        self.running_config = cfg
         self.host_var.set(cfg.host)
         self.port_var.set(str(cfg.port))
         self.password_var.set(cfg.password)
         self.item_var.set(cfg.scene_item_name)
         self.auto_connect_var.set(cfg.auto_connect)
-        self.hotkey_var.set(cfg.hotkey if is_valid_show_hotkey(cfg.hotkey) else "G")
+        self.hotkey_var.set(cfg.hotkey)
         self.toggle_mode_var.set(cfg.toggle_mode)
-        self.hide_hotkey_var.set(cfg.hide_hotkey if is_valid_hide_hotkey(cfg.hide_hotkey) else "H")
-        self.hide_delay_var.set(self._clamp_hide_delay(cfg.hide_delay_ms))
+        self.hide_hotkey_var.set(cfg.hide_hotkey)
+        self.hide_delay_var.set(cfg.hide_delay_ms)
         self._update_hide_delay_label()
-        self.active_hotkey_label = self.hotkey_var.get().strip().upper() or "G"
-        self.active_hide_hotkey_label = self.hide_hotkey_var.get().strip().upper() or "H"
-        self.active_toggle_mode = cfg.toggle_mode
         self._update_toggle_mode_ui()
         self._sync_key_buttons()
         self._update_help_text()
@@ -572,18 +575,10 @@ class MapHideApp:
         except ValueError as exc:
             self.status_var.set(str(exc))
             return
-        except Exception as exc:
+        except OSError as exc:
             self._show_error("Could not save config", str(exc))
             return
-        self.active_hotkey_label = cfg.hotkey
-        self.active_hide_hotkey_label = cfg.hide_hotkey
-        self.active_toggle_mode = cfg.toggle_mode
-        self._update_help_text()
-        if self.service.is_running:
-            self._restart_service_with_config(cfg)
-            self.status_var.set("Config saved. Restarting MapHide...")
-        else:
-            self.status_var.set("Config saved.")
+        self._apply_config(cfg, "Config saved.")
 
     def reset_defaults(self):
         if not self.reset_confirm_pending:
@@ -595,26 +590,26 @@ class MapHideApp:
         cfg = default_config()
         self._set_form(cfg)
         save_config(cfg)
-        self.active_hotkey_label = cfg.hotkey
-        self.active_hide_hotkey_label = cfg.hide_hotkey
-        self.active_toggle_mode = cfg.toggle_mode
+        self._apply_config(cfg, "Defaults restored.")
+
+    def _apply_config(self, cfg, done_message):
+        self.running_config = cfg
         self._update_help_text()
         if self.service.is_running:
             self._restart_service_with_config(cfg)
-            self.status_var.set("Defaults restored. Restarting MapHide...")
+            self.status_var.set(f"{done_message} Restarting MapHide...")
         else:
-            self.status_var.set("Defaults restored.")
+            self.status_var.set(done_message)
 
     def start_service(self):
         try:
             cfg = self._read_form()
             save_config(cfg)
-            self.service = self._create_service(cfg)
             self.service.start(cfg)
         except ValueError as exc:
             self.status_var.set(str(exc))
             return
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             self._show_error("Could not start MapHide", str(exc))
             return
 
@@ -627,37 +622,28 @@ class MapHideApp:
         self.status_var.set("Stopping...")
 
     def _restart_service_with_config(self, cfg):
+        self.pending_restart_config = cfg
         if self.restart_pending:
-            self.pending_restart_config = cfg
             return
         self.restart_pending = True
-        self.pending_restart_config = cfg
-        self.restart_service_ref = self.service
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="disabled")
-        self.restart_service_ref.stop()
+        self.service.stop()
         self.root.after(50, self._finish_service_restart)
 
     def _finish_service_restart(self):
-        service_ref = self.restart_service_ref
-        if service_ref is not None and service_ref.is_running:
+        # The worker clears its running flag on the way out, so wait for it
+        # rather than starting a second one on top of it.
+        if self.service.is_running:
             self.root.after(50, self._finish_service_restart)
             return
 
         cfg = self.pending_restart_config
         self.restart_pending = False
         self.pending_restart_config = None
-        self.restart_service_ref = None
-
-        if cfg is None:
-            self.start_button.configure(state="normal")
-            self.stop_button.configure(state="disabled")
-            return
-
         try:
-            self.service = self._create_service(cfg)
             self.service.start(cfg)
-        except Exception as exc:
+        except RuntimeError as exc:
             self.status_var.set(str(exc))
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
@@ -709,9 +695,9 @@ class MapHideApp:
             pass
 
     def _update_help_text(self):
-        hotkey = self.active_hotkey_label or "G"
-        hide_hotkey = self.active_hide_hotkey_label or "H"
-        if self.active_toggle_mode:
+        hotkey = self.running_config.hotkey
+        hide_hotkey = self.running_config.hide_hotkey
+        if self.running_config.toggle_mode:
             self.help_text_var.set(
                 f"Press {hotkey} to show the overlay. Press {hide_hotkey} to hide it."
             )
@@ -822,15 +808,6 @@ class MapHideApp:
         except (TypeError, ValueError):
             delay = DEFAULT_HIDE_DELAY_MS
         return max(MIN_HIDE_DELAY_MS, min(MAX_HIDE_DELAY_MS, delay))
-
-    def _create_service(self, cfg):
-        return MapHideService(
-            show_vk_codes=cfg.hotkey_vk_code(),
-            show_hotkey_label=cfg.hotkey,
-            toggle_mode=cfg.toggle_mode,
-            hide_vk_codes=cfg.hide_hotkey_vk_code(),
-            hide_hotkey_label=cfg.hide_hotkey,
-        )
 
     def _update_sensitive_visibility(self):
         if hasattr(self, "host_entry"):

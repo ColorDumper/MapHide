@@ -38,13 +38,7 @@ def run_headless():
         )
         sys.exit(1)
 
-    service = MapHideService(
-        show_vk_codes=cfg.hotkey_vk_code(),
-        show_hotkey_label=cfg.hotkey,
-        toggle_mode=cfg.toggle_mode,
-        hide_vk_codes=cfg.hide_hotkey_vk_code(),
-        hide_hotkey_label=cfg.hide_hotkey,
-    )
+    service = MapHideService()
     service.start(cfg)
     if cfg.toggle_mode:
         print(

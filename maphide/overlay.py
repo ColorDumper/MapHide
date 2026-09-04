@@ -5,7 +5,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from .hotkeys import HOTKEY_TO_VK, is_hotkey_down
+from .hotkeys import is_hotkey_down
 from .obs import (
     ObsAuthError,
     ObsConnectionError,
@@ -28,19 +28,7 @@ def human_ts():
 
 
 class MapHideService:
-    def __init__(
-        self,
-        show_vk_codes=None,
-        show_hotkey_label="G",
-        toggle_mode=False,
-        hide_vk_codes=None,
-        hide_hotkey_label="H",
-    ):
-        self.show_vk_codes = show_vk_codes or [HOTKEY_TO_VK["G"]]
-        self.show_hotkey_label = show_hotkey_label
-        self.toggle_mode = toggle_mode
-        self.hide_vk_codes = hide_vk_codes or [HOTKEY_TO_VK["H"]]
-        self.hide_hotkey_label = hide_hotkey_label
+    def __init__(self):
         self._thread = None
         self._stop_event = threading.Event()
         self._events = queue.Queue()
@@ -84,6 +72,8 @@ class MapHideService:
         )
 
     def _run(self, cfg):
+        show_vk_codes = cfg.hotkey_vk_code()
+        hide_vk_codes = cfg.hide_hotkey_vk_code()
         client = None
         overlay_visible = False
         desired_visible = False
@@ -148,16 +138,16 @@ class MapHideService:
                                     f"Source '{cfg.scene_item_name}' not found.",
                                 )
                             else:
-                                if self.toggle_mode:
+                                if cfg.toggle_mode:
                                     status_message = (
                                         f"Scene: {active_scene_name}. "
-                                        f"{self.show_hotkey_label} shows '{cfg.scene_item_name}', "
-                                        f"{self.hide_hotkey_label} hides it."
+                                        f"{cfg.hotkey} shows '{cfg.scene_item_name}', "
+                                        f"{cfg.hide_hotkey} hides it."
                                     )
                                 else:
                                     status_message = (
                                         f"Scene: {active_scene_name}. "
-                                        f"Hold {self.show_hotkey_label} for '{cfg.scene_item_name}'."
+                                        f"Hold {cfg.hotkey} for '{cfg.scene_item_name}'."
                                     )
                                 self._emit("status", status_message)
                             # OBS's actual state is unknown at this point: it restores
@@ -165,23 +155,23 @@ class MapHideService:
                             # strand one visible. Send our state rather than assume it
                             # already matches. In hold mode the key is the authority; in
                             # toggle mode the latched state is.
-                            if not self.toggle_mode:
-                                desired_visible = is_hotkey_down(self.show_vk_codes)
+                            if not cfg.toggle_mode:
+                                desired_visible = is_hotkey_down(show_vk_codes)
                             set_overlay_enabled_raw(
                                 client, scene_items, active_scene_name, desired_visible
                             )
                             overlay_visible = desired_visible
                         last_scene_refresh = now
 
-                    show_key_down = is_hotkey_down(self.show_vk_codes)
+                    show_key_down = is_hotkey_down(show_vk_codes)
                     previous_desired = desired_visible
 
-                    if self.toggle_mode:
-                        hide_key_down = is_hotkey_down(self.hide_vk_codes)
+                    if cfg.toggle_mode:
+                        hide_key_down = is_hotkey_down(hide_vk_codes)
                         show_pressed = show_key_down and not show_key_was_down
                         hide_pressed = hide_key_down and not hide_key_was_down
                         if overlay_available:
-                            if self.show_vk_codes == self.hide_vk_codes:
+                            if show_vk_codes == hide_vk_codes:
                                 if show_pressed:
                                     desired_visible = not desired_visible
                             else:

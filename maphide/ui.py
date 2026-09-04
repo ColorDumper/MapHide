@@ -446,22 +446,30 @@ class MapHideApp:
         self._sync_key_buttons()
 
     def _apply_window_icon(self):
+        # The window has to exist first. Setting the icon before Tk realises it
+        # only changes the default for windows made later, leaving this one with
+        # the small icon and a soft taskbar entry.
+        self.root.update_idletasks()
         try:
             if ICON_ICO_PATH.exists():
                 self.root.iconbitmap(default=str(ICON_ICO_PATH))
         except tk.TclError:
             pass
-        # Every size we ship, largest first. Handing Windows only the 32px image
-        # left it upscaling that for the taskbar, which looked soft.
-        icon_paths = [
-            path
-            for path in (ICON_RUNTIME_PNG_PATH, ICON_TRAY_PNG_PATH, ICON_WINDOW_PNG_PATH)
-            if path.exists()
-        ]
-        if icon_paths:
+        # One image, the largest we ship. Given several, Tk hands Windows the
+        # smallest for the icon the taskbar draws, which is what left it soft;
+        # given one large image Windows scales it down cleanly for every size.
+        icon_photo_path = next(
+            (
+                path
+                for path in (ICON_RUNTIME_PNG_PATH, ICON_TRAY_PNG_PATH, ICON_WINDOW_PNG_PATH)
+                if path.exists()
+            ),
+            None,
+        )
+        if icon_photo_path is not None:
             try:
-                self.window_icon_images = [tk.PhotoImage(file=str(p)) for p in icon_paths]
-                self.root.iconphoto(True, *self.window_icon_images)
+                self.window_icon_image = tk.PhotoImage(file=str(icon_photo_path))
+                self.root.iconphoto(True, self.window_icon_image)
             except tk.TclError:
                 pass
 

@@ -79,7 +79,6 @@ jobs:
           Write-Host "SHA-256: $hash"
           "version=$version" >> $env:GITHUB_OUTPUT
           "zip=$zip"         >> $env:GITHUB_OUTPUT
-          "sha256=$hash"     >> $env:GITHUB_OUTPUT
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -96,14 +95,17 @@ jobs:
         run: |
           $tag  = '${{ github.ref_name }}'
           $zip  = '${{ steps.package.outputs.zip }}'
-          $hash = '${{ steps.package.outputs.sha256 }}'
           $repo = '${{ github.repository }}'
 
+          # Boilerplate every release needs, below a rule so the notes written
+          # for the release itself can go straight in above it. GitHub already
+          # shows the asset's SHA-256 next to the download, so it is not repeated.
           $notes = @(
-            "SHA-256 of MapHide-$tag-win64.zip:"
-            $hash
+            "---"
             ""
-            "Changelog: https://github.com/$repo/blob/main/CHANGELOG.md"
+            "Windows may show a ""Windows protected your PC"" message because this build isn't code-signed. Click **More info**, then **Run anyway**."
+            ""
+            "See the [changelog](https://github.com/$repo/blob/main/CHANGELOG.md) for full history."
           ) -join "`n"
           $notes | Out-File -FilePath notes.md -Encoding utf8
 

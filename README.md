@@ -216,7 +216,7 @@ The repo ships `config.example.json` as a template. If you run MapHide from sour
 - If the initial OBS settings are incorrect, MapHide will wait for you to fix the settings and save again.
 - Closing the window hides MapHide to the system tray.
 - To fully close MapHide, right-click the tray icon and click `Exit`.
-- Windows may show a SmartScreen or "Unknown publisher" warning when opening the app. Click `More info`, then `Run anyway`.
+- Windows may show a SmartScreen or "Unknown publisher" warning when opening the app because it is not code-signed. Click `More info`, then `Run anyway`.
 - MapHide can work on a single-PC setup, but it is mainly built for dual-PC streaming. For a single-PC workflow, an OBS script may be a simpler option depending on your setup.
 
 ## Troubleshooting
@@ -262,12 +262,6 @@ Lower the hide delay slider slightly, then click `Save Settings`.
 ### The app closes when I click the X
 
 This is normal behavior. MapHide hides to the system tray instead of fully closing. Use the tray icon menu and click `Exit` to close it fully.
-
-## Code signing
-
-Free code signing for MapHide's Windows builds is provided by
-[SignPath.io](https://about.signpath.io), with a certificate issued by the
-[SignPath Foundation](https://signpath.org).
 
 ## Version
 

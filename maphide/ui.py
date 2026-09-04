@@ -75,7 +75,6 @@ TRAY_FALLBACK_SIZE = (64, 64)
 COLOR_TRAY_BG = "#101820"
 COLOR_TRAY_TILE = "#2d6a4f"
 COLOR_TRAY_MARK = "#d9ed92"
-WATERMARK_MAX_SIZE = (64, 40)
 WINDOW_TITLE = "MapHide"
 COLOR_BG = "#12161d"
 COLOR_PANEL = "#1b2330"
@@ -484,11 +483,8 @@ class MapHideApp:
         if Image is None or ImageTk is None or not WATERMARK_PNG_PATH.exists():
             return
         try:
+            # Drawn at the size it is shown at, so nothing is resampled here.
             watermark = Image.open(WATERMARK_PNG_PATH).convert("RGBA")
-            visible_bounds = watermark.getbbox()
-            if visible_bounds is not None:
-                watermark = watermark.crop(visible_bounds)
-            watermark.thumbnail(WATERMARK_MAX_SIZE, Image.Resampling.LANCZOS)
             self.footer_brand_image = ImageTk.PhotoImage(watermark)
             self.footer_brand.configure(image=self.footer_brand_image, text="")
         except (OSError, tk.TclError):

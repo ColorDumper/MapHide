@@ -86,7 +86,7 @@ class MapHideService:
     def _run(self, cfg):
         client = None
         overlay_visible = False
-        toggle_desired_visible = False
+        desired_visible = False
         item_id = None
         scene_items = {}
         overlay_available = False
@@ -166,105 +166,66 @@ class MapHideService:
                             # already matches. In hold mode the key is the authority; in
                             # toggle mode the latched state is.
                             if not self.toggle_mode:
-                                overlay_visible = is_hotkey_down(self.show_vk_codes)
+                                desired_visible = is_hotkey_down(self.show_vk_codes)
                             set_overlay_enabled_raw(
-                                client, scene_items, active_scene_name, overlay_visible
+                                client, scene_items, active_scene_name, desired_visible
                             )
+                            overlay_visible = desired_visible
                         last_scene_refresh = now
 
                     show_key_down = is_hotkey_down(self.show_vk_codes)
+                    previous_desired = desired_visible
 
                     if self.toggle_mode:
                         hide_key_down = is_hotkey_down(self.hide_vk_codes)
-                        same_key_toggle = self.show_vk_codes == self.hide_vk_codes
-
-                        if same_key_toggle:
-                            # Each press toggles, so it has to flip an intent held apart
-                            # from what OBS has already been told. Reading overlay_visible
-                            # instead treats every press during the hide delay as another
-                            # hide, and the parity drifts until a press meant to re-open
-                            # the map leaves it uncovered.
-                            if show_key_down and not show_key_was_down and overlay_available:
-                                toggle_desired_visible = not toggle_desired_visible
-                                hide_requested_at = None if toggle_desired_visible else now
-
-                            if (
-                                toggle_desired_visible
-                                and not overlay_visible
-                                and overlay_available
-                                and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
-                            ):
-                                set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
-                                overlay_visible = True
-                                last_action_time = now
-                                self._emit("overlay", "Overlay shown.")
-                        elif show_key_down and not show_key_was_down and overlay_available:
-                            hide_requested_at = None
-                            if (
-                                not overlay_visible
-                                and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
-                            ):
-                                set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
-                                overlay_visible = True
-                                last_action_time = now
-                                self._emit("overlay", "Overlay shown.")
-
-                        if (
-                            not same_key_toggle
-                            and hide_key_down
-                            and not hide_key_was_down
-                            and overlay_visible
-                            and overlay_available
-                        ):
-                            hide_requested_at = now
-
-                        if (
-                            hide_requested_at is not None
-                            and overlay_visible
-                            and overlay_available
-                            and (now - hide_requested_at) >= timedelta(milliseconds=cfg.hide_delay_ms)
-                            and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
-                        ):
-                            set_overlay_enabled_raw(client, scene_items, active_scene_name, False)
-                            overlay_visible = False
-                            hide_requested_at = None
-                            last_action_time = now
-                            self._emit("overlay", "Overlay hidden.")
-
+                        show_pressed = show_key_down and not show_key_was_down
+                        hide_pressed = hide_key_down and not hide_key_was_down
+                        if overlay_available:
+                            if self.show_vk_codes == self.hide_vk_codes:
+                                if show_pressed:
+                                    desired_visible = not desired_visible
+                            else:
+                                if show_pressed:
+                                    desired_visible = True
+                                if hide_pressed:
+                                    desired_visible = False
                         show_key_was_down = show_key_down
                         hide_key_was_down = hide_key_down
                     else:
-                        if show_key_down and not overlay_visible and overlay_available:
-                            hide_requested_at = None
-                            if (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS):
-                                set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
-                                overlay_visible = True
-                                last_action_time = now
-                                self._emit("overlay", "Overlay shown.")
+                        desired_visible = show_key_down
 
-                        elif not show_key_down and overlay_visible and overlay_available:
-                            if hide_requested_at is None:
-                                hide_requested_at = now
-                            if (
-                                (now - hide_requested_at) >= timedelta(milliseconds=cfg.hide_delay_ms)
-                                and (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
-                            ):
-                                set_overlay_enabled_raw(client, scene_items, active_scene_name, False)
-                                overlay_visible = False
-                                hide_requested_at = None
-                                last_action_time = now
-                                self._emit("overlay", "Overlay hidden.")
-                        else:
-                            hide_requested_at = None
+                    # The delay exists to cover a map's closing animation, so it runs
+                    # from the moment the intent changes, not from whenever OBS is told.
+                    if desired_visible != previous_desired:
+                        hide_requested_at = None if desired_visible else now
+
+                    if overlay_available and desired_visible != overlay_visible:
+                        settled = (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
+                        if desired_visible and settled:
+                            set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
+                            overlay_visible = True
+                            last_action_time = now
+                            self._emit("overlay", "Overlay shown.")
+                        elif (
+                            not desired_visible
+                            and settled
+                            and hide_requested_at is not None
+                            and (now - hide_requested_at) >= timedelta(milliseconds=cfg.hide_delay_ms)
+                        ):
+                            set_overlay_enabled_raw(client, scene_items, active_scene_name, False)
+                            overlay_visible = False
+                            last_action_time = now
+                            self._emit("overlay", "Overlay hidden.")
 
                     time.sleep(POLL_INTERVAL)
                 except ObsConnectionError as exc:
                     self._emit("error", str(exc))
                     disconnect_obs(client)
                     client = None
-                    # overlay_visible deliberately survives the drop. It is the only
-                    # record that the overlay may still be up in OBS, and the scene
-                    # resolution above uses it to put things right on reconnect.
+                    # desired_visible and overlay_visible deliberately survive the drop.
+                    # They are the only record of what the overlay should be and of what
+                    # OBS was last told, and the scene resolution above uses them to put
+                    # things right on reconnect.
                     item_id = None
                     active_scene_name = None
                     hide_requested_at = None

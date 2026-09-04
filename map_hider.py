@@ -67,7 +67,6 @@ ICON_TRAY_PNG_PATH = APP_DIR / "assets" / "MapHide_Icon_64.png"
 ICON_PNG_PATH = APP_DIR / "MapHide_Master.png"
 WATERMARK_PNG_PATH = APP_DIR / "PaintTwo.png"
 APP_USER_MODEL_ID = "MapHide.App"
-TOGGLE_KEY_VK = 0x47
 POLL_INTERVAL = 0.005
 DEBOUNCE_MS = 50
 DEFAULT_HIDE_DELAY_MS = 120
@@ -161,7 +160,7 @@ class AppConfig:
         }
 
     def hotkey_vk_code(self):
-        return hotkey_to_vk_codes(self.hotkey, fallback=[TOGGLE_KEY_VK])
+        return hotkey_to_vk_codes(self.hotkey, fallback=[HOTKEY_TO_VK["G"]])
 
     def hide_hotkey_vk_code(self):
         return hotkey_to_vk_codes(self.hide_hotkey, fallback=[HOTKEY_TO_VK["H"]])
@@ -248,12 +247,7 @@ def describe_obs_request_error(exc):
 
 def connect_obs(host, port, password, timeout=3):
     try:
-        client = ReqClient(host=host, port=port, password=password, timeout=timeout)
-        try:
-            client.get_version()
-        except Exception:
-            pass
-        return client
+        return ReqClient(host=host, port=port, password=password, timeout=timeout)
     except Exception as exc:
         raise ConnectionError(describe_obs_connection_error(exc)) from exc
 
@@ -318,13 +312,8 @@ def set_overlay_enabled_raw(client, scene_items, current_scene_name, enabled):
             set_scene_item_enabled_raw(client, scene_name, scene_item_id, enabled)
 
 
-def normalize_hotkey_label(value):
-    label = str(value).strip().upper()
-    return label
-
-
 def hotkey_to_vk_codes(hotkey, fallback=None):
-    labels = [normalize_hotkey_label(part) for part in str(hotkey).split("+") if part.strip()]
+    labels = [part.strip().upper() for part in str(hotkey).split("+") if part.strip()]
     codes = []
     for label in labels:
         code = HOTKEY_TO_VK.get(label)
@@ -336,7 +325,7 @@ def hotkey_to_vk_codes(hotkey, fallback=None):
 
 
 def hotkey_labels(hotkey):
-    return [normalize_hotkey_label(part) for part in str(hotkey).split("+") if part.strip()]
+    return [part.strip().upper() for part in str(hotkey).split("+") if part.strip()]
 
 
 def is_valid_hide_hotkey(hotkey):
@@ -393,7 +382,7 @@ class MapHideService:
         hide_vk_codes=None,
         hide_hotkey_label="H",
     ):
-        self.show_vk_codes = show_vk_codes or [TOGGLE_KEY_VK]
+        self.show_vk_codes = show_vk_codes or [HOTKEY_TO_VK["G"]]
         self.show_hotkey_label = show_hotkey_label
         self.toggle_mode = toggle_mode
         self.hide_vk_codes = hide_vk_codes or [HOTKEY_TO_VK["H"]]
@@ -431,13 +420,12 @@ class MapHideService:
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
-    def _emit(self, kind, message, **extra):
+    def _emit(self, kind, message):
         self._events.put(
             {
                 "kind": kind,
                 "message": message,
                 "timestamp": human_ts(),
-                **extra,
             }
         )
 
@@ -514,11 +502,7 @@ class MapHideService:
                                         f"Scene: {active_scene_name}. "
                                         f"Hold {self.show_hotkey_label} for '{cfg.scene_item_name}'."
                                     )
-                                self._emit(
-                                    "status",
-                                    status_message,
-                                    scene_item_id=item_id,
-                                )
+                                self._emit("status", status_message)
                             # OBS's actual state is unknown at this point: it restores
                             # sources enabled after a restart, and a dropped connection can
                             # strand one visible. Send our state rather than assume it
@@ -556,7 +540,7 @@ class MapHideService:
                                 set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
                                 overlay_visible = True
                                 last_action_time = now
-                                self._emit("overlay", "Overlay shown.", visible=True)
+                                self._emit("overlay", "Overlay shown.")
                         elif show_key_down and not show_key_was_down and overlay_available:
                             hide_requested_at = None
                             if (
@@ -566,7 +550,7 @@ class MapHideService:
                                 set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
                                 overlay_visible = True
                                 last_action_time = now
-                                self._emit("overlay", "Overlay shown.", visible=True)
+                                self._emit("overlay", "Overlay shown.")
 
                         if (
                             not same_key_toggle
@@ -588,7 +572,7 @@ class MapHideService:
                             overlay_visible = False
                             hide_requested_at = None
                             last_action_time = now
-                            self._emit("overlay", "Overlay hidden.", visible=False)
+                            self._emit("overlay", "Overlay hidden.")
 
                         show_key_was_down = show_key_down
                         hide_key_was_down = hide_key_down
@@ -599,7 +583,7 @@ class MapHideService:
                                 set_overlay_enabled_raw(client, scene_items, active_scene_name, True)
                                 overlay_visible = True
                                 last_action_time = now
-                                self._emit("overlay", "Overlay shown.", visible=True)
+                                self._emit("overlay", "Overlay shown.")
 
                         elif not show_key_down and overlay_visible and overlay_available:
                             if hide_requested_at is None:
@@ -612,7 +596,7 @@ class MapHideService:
                                 overlay_visible = False
                                 hide_requested_at = None
                                 last_action_time = now
-                                self._emit("overlay", "Overlay hidden.", visible=False)
+                                self._emit("overlay", "Overlay hidden.")
                         else:
                             hide_requested_at = None
 
@@ -658,7 +642,6 @@ class MapHideApp:
         self.tray_icon = None
         self.tray_thread = None
         self.exit_requested = False
-        self.is_hidden_to_tray = False
         self.settings_visible = False
         self.restart_pending = False
         self.pending_restart_config = None
@@ -691,7 +674,6 @@ class MapHideApp:
 
         self._configure_styles()
         self._build_ui()
-        self._apply_window_background()
         self._apply_window_icon()
         self._apply_footer_watermark()
         self._load_initial_config()
@@ -784,7 +766,6 @@ class MapHideApp:
         frame.grid(sticky="nsew")
         frame.columnconfigure(0, weight=0)
         frame.columnconfigure(1, weight=0)
-        self.main_frame = frame
 
         left_panel = ttk.Frame(frame)
         left_panel.grid(row=0, column=0, sticky="n")
@@ -1010,16 +991,6 @@ class MapHideApp:
         self._update_toggle_mode_ui()
         self._sync_key_buttons()
 
-    def _apply_window_background(self):
-        if not hasattr(self, "main_frame"):
-            return
-        try:
-            bg = ttk.Style().lookup("TFrame", "background")
-            if bg:
-                self.root.configure(bg=bg)
-        except Exception:
-            pass
-
     def _apply_window_icon(self):
         try:
             if ICON_ICO_PATH.exists():
@@ -1084,9 +1055,6 @@ class MapHideApp:
         self.hide_hotkey_var.set(original_hide_hotkey)
         self.key_capture_target = original_capture_target
         self._update_toggle_mode_ui()
-
-    def _default_form_config(self):
-        return default_config()
 
     def _load_initial_config(self):
         try:
@@ -1183,7 +1151,7 @@ class MapHideApp:
             return
 
         self.reset_confirm_pending = False
-        cfg = self._default_form_config()
+        cfg = default_config()
         self._set_form(cfg)
         save_config(cfg)
         self.active_hotkey_label = cfg.hotkey
@@ -1503,12 +1471,10 @@ class MapHideApp:
             self.root.destroy()
             return
 
-        self.is_hidden_to_tray = True
         self.root.withdraw()
         self.status_var.set("MapHide is still running in the system tray.")
 
     def show_window(self):
-        self.is_hidden_to_tray = False
         current_state = self.root.state()
         if current_state == "withdrawn":
             self.root.deiconify()

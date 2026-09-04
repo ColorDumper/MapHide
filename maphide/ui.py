@@ -129,6 +129,11 @@ class MapHideApp:
         self.running_config = default_config()
         self.key_capture_target = None
 
+        # Stay hidden while building. Windows gives a taskbar button its icon at
+        # the moment the window first appears, so appearing before the icon is set
+        # leaves Tk's own feather there until the window is next re-shown. Building
+        # unseen also spares the user the window resizing itself on the way up.
+        self.root.withdraw()
         self._configure_styles()
         self._build_ui()
         self._apply_window_icon()
@@ -142,6 +147,7 @@ class MapHideApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._setup_tray()
         self.root.after(EVENT_DRAIN_INTERVAL_MS, self._drain_events)
+        self.root.deiconify()
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -446,9 +452,8 @@ class MapHideApp:
         self._sync_key_buttons()
 
     def _apply_window_icon(self):
-        # The window has to exist first. Setting the icon before Tk realises it
-        # only changes the default for windows made later, leaving this one with
-        # the small icon and a soft taskbar entry.
+        # The window has to exist before the icon will stick to it, but it is still
+        # withdrawn here, so this creates it without putting it on screen.
         self.root.update_idletasks()
         try:
             if ICON_ICO_PATH.exists():

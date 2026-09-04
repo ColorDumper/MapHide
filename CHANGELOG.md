@@ -39,19 +39,15 @@ All notable changes to MapHide are documented here.
 
 - Hide key now also accepts `Esc`, for games that close the map with the
   Escape key.
-- Internal key-handling cleanup (special-keysym mapping, standalone
-  hide-key handling).
 - README wording updates.
 
 ## v0.2.1 - 2026-04-21
 
-- Added dedicated application icons for the window, tray, and runtime,
-  loaded from a new `assets/` folder; refreshed `MapHide.ico`.
+- Added proper application icons for the window and the system tray.
 - Same-key toggle support: in toggle mode, pressing the same key for show
   and hide now alternates the overlay instead of being rejected.
 - Removed the restriction that the show key and hide key must differ in
   toggle mode.
-- Footer watermark now auto-crops transparent padding before scaling.
 - Consolidated status and help text.
 
 ## v0.2.0 - 2026-04-21
@@ -60,8 +56,7 @@ All notable changes to MapHide are documented here.
   hold mode.
 - Added an in-app settings panel with configurable keybinds and a
   click-to-capture key picker.
-- Added a configurable hide-delay slider, replacing the fixed delay
-  constant.
+- Added a configurable hide-delay slider; the delay was previously fixed.
 - Added an "auto connect on startup" option.
 - OBS host, port, and password fields are now masked by default, each with
   its own "Show" toggle.

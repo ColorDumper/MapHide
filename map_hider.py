@@ -75,8 +75,25 @@ def run_headless():
 
 
 
+def run_selftest():
+    """Import every module and bundled package the app needs, then exit.
+
+    The build workflow runs this against the frozen executable so a missing
+    PyInstaller hidden import fails CI instead of reaching a user. A windowed
+    build has no console, so a clean exit (code 0) is the only pass signal.
+    """
+    import tkinter  # noqa: F401
+
+    import pystray  # noqa: F401
+    from PIL import Image, ImageDraw, ImageTk  # noqa: F401
+
+    from maphide import obs, overlay, state, ui  # noqa: F401
+
+
 def main():
-    if "--headless" in sys.argv:
+    if "--selftest" in sys.argv:
+        run_selftest()
+    elif "--headless" in sys.argv:
         run_headless()
     else:
         # Imported here so headless mode never needs Tk to be present.

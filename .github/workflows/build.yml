@@ -13,7 +13,31 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Import check
+        run: python map_hider.py --selftest
+
   build:
+    needs: test
     runs-on: windows-latest
     permissions:
       contents: write  # needed only to create/update the Release on a tag build
@@ -58,9 +82,33 @@ jobs:
       - name: Smoke test the build
         shell: pwsh
         run: |
-          if (-not (Test-Path 'dist/MapHide/MapHide.exe')) { throw 'MapHide.exe missing' }
+          $exe = 'dist/MapHide/MapHide.exe'
+          if (-not (Test-Path $exe)) { throw 'MapHide.exe missing' }
           if (-not (Test-Path 'dist/MapHide/_internal/python*.dll')) { throw '_internal runtime missing' }
           if (-not (Test-Path 'dist/MapHide/_internal/assets/MapHide_Icon_64.png')) { throw 'bundled assets missing' }
+
+          # Import the whole module graph from the frozen exe. A missing hidden
+          # import exits non-zero here instead of crashing on a user's machine;
+          # the windowed build has no stdout, so the exit code is the signal.
+          # (Start-Process, not the call operator, so a windowed exe is waited on.)
+          $p = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "MapHide.exe --selftest exited $($p.ExitCode)" }
+
+          # Real run: headless against a dead endpoint. It must start its worker,
+          # fail the connection cleanly, and exit on its own without hanging.
+          $cfg = @{
+            host = '127.0.0.1'; port = 4455; password = ''
+            scene_item_name = 'Overlay'; auto_connect = $false
+            hotkey = 'G'; toggle_mode = $false; hide_hotkey = 'H'
+            hide_delay_ms = 120
+          } | ConvertTo-Json
+          $cfgDir = Join-Path $env:APPDATA 'MapHide'
+          New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
+          Set-Content -Path (Join-Path $cfgDir 'config.json') -Value $cfg -Encoding utf8
+
+          $p = Start-Process -FilePath $exe -ArgumentList '--headless' -PassThru
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'MapHide.exe --headless did not exit within 30s' }
+          if ($p.ExitCode -ne 0) { throw "MapHide.exe --headless exited $($p.ExitCode)" }
 
       - name: Package
         id: package

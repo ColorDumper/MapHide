@@ -3,6 +3,7 @@
 import queue
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from .hotkeys import is_hotkey_down
@@ -15,9 +16,9 @@ from .obs import (
     get_current_scene,
     set_overlay_enabled,
 )
+from .state import HIDE, SHOW, OverlayState, decide
 
 POLL_INTERVAL = 0.005
-DEBOUNCE_MS = 50
 SCENE_REFRESH_INTERVAL = 0.25
 RECONNECT_DELAY = 2.0
 OBS_OVERLAY_MAY_REMAIN = "MapHide stopped, but lost the connection before it could hide the overlay. Check OBS."
@@ -84,21 +85,17 @@ class MapHideService:
     def _run(self, cfg):
         show_vk_codes = cfg.show_vk_codes()
         hide_vk_codes = cfg.hide_vk_codes()
+        same_key = show_vk_codes == hide_vk_codes
         client = None
-        overlay_visible = False
-        desired_visible = False
+        state = OverlayState()
         item_id = None
         scene_items = {}
         overlay_available = False
         active_scene_name = None
-        last_action_time = datetime.min
-        hide_requested_at = None
         last_scene_refresh = datetime.min
         announced_connection_failure = False
         final_status_message = "MapHide stopped."
         had_successful_connection = False
-        show_key_was_down = False
-        hide_key_was_down = False
 
         try:
             while not self._stop_event.is_set():
@@ -109,9 +106,12 @@ class MapHideService:
                         item_id = None
                         active_scene_name = None
                         last_scene_refresh = datetime.min
-                        hide_requested_at = None
-                        show_key_was_down = False
-                        hide_key_was_down = False
+                        state = replace(
+                            state,
+                            hide_requested_at=None,
+                            show_key_was_down=False,
+                            hide_key_was_down=False,
+                        )
                         announced_connection_failure = False
                         had_successful_connection = True
                         self._emit("status", "Connected to OBS.")
@@ -140,7 +140,6 @@ class MapHideService:
                             scene_items = find_overlay_scene_items(client, cfg.scene_item_name)
                             item_id = scene_items.get(active_scene_name)
                             overlay_available = any(found is not None for found in scene_items.values())
-                            hide_requested_at = None
                             if item_id is None:
                                 self._emit(
                                     "status",
@@ -154,57 +153,37 @@ class MapHideService:
                             # strand one visible. Send our state rather than assume it
                             # already matches. In hold mode the key is the authority; in
                             # toggle mode the latched state is.
-                            if not cfg.toggle_mode:
-                                desired_visible = is_hotkey_down(show_vk_codes)
+                            desired_visible = (
+                                state.desired_visible
+                                if cfg.toggle_mode
+                                else is_hotkey_down(show_vk_codes)
+                            )
                             set_overlay_enabled(
                                 client, scene_items, active_scene_name, desired_visible
                             )
-                            overlay_visible = desired_visible
+                            state = replace(
+                                state,
+                                desired_visible=desired_visible,
+                                overlay_visible=desired_visible,
+                                hide_requested_at=None,
+                            )
                         last_scene_refresh = now
 
-                    show_key_down = is_hotkey_down(show_vk_codes)
-                    previous_desired = desired_visible
-
-                    if cfg.toggle_mode:
-                        hide_key_down = is_hotkey_down(hide_vk_codes)
-                        show_pressed = show_key_down and not show_key_was_down
-                        hide_pressed = hide_key_down and not hide_key_was_down
-                        if overlay_available:
-                            if show_vk_codes == hide_vk_codes:
-                                if show_pressed:
-                                    desired_visible = not desired_visible
-                            else:
-                                if show_pressed:
-                                    desired_visible = True
-                                if hide_pressed:
-                                    desired_visible = False
-                        show_key_was_down = show_key_down
-                        hide_key_was_down = hide_key_down
-                    else:
-                        desired_visible = show_key_down
-
-                    # The delay exists to cover a map's closing animation, so it runs
-                    # from the moment the intent changes, not from whenever OBS is told.
-                    if desired_visible != previous_desired:
-                        hide_requested_at = None if desired_visible else now
-
-                    if overlay_available and desired_visible != overlay_visible:
-                        settled = (now - last_action_time) >= timedelta(milliseconds=DEBOUNCE_MS)
-                        if desired_visible and settled:
-                            set_overlay_enabled(client, scene_items, active_scene_name, True)
-                            overlay_visible = True
-                            last_action_time = now
-                            self._emit("overlay", "Overlay shown.")
-                        elif (
-                            not desired_visible
-                            and settled
-                            and hide_requested_at is not None
-                            and (now - hide_requested_at) >= timedelta(milliseconds=cfg.hide_delay_ms)
-                        ):
-                            set_overlay_enabled(client, scene_items, active_scene_name, False)
-                            overlay_visible = False
-                            last_action_time = now
-                            self._emit("overlay", "Overlay hidden.")
+                    state, action = decide(
+                        cfg,
+                        state,
+                        is_hotkey_down(show_vk_codes),
+                        is_hotkey_down(hide_vk_codes) if cfg.toggle_mode else False,
+                        same_key,
+                        overlay_available,
+                        now,
+                    )
+                    if action == SHOW:
+                        set_overlay_enabled(client, scene_items, active_scene_name, True)
+                        self._emit("overlay", "Overlay shown.")
+                    elif action == HIDE:
+                        set_overlay_enabled(client, scene_items, active_scene_name, False)
+                        self._emit("overlay", "Overlay hidden.")
 
                     time.sleep(POLL_INTERVAL)
                 except ObsConnectionError as exc:
@@ -217,9 +196,12 @@ class MapHideService:
                     # things right on reconnect.
                     item_id = None
                     active_scene_name = None
-                    hide_requested_at = None
-                    show_key_was_down = False
-                    hide_key_was_down = False
+                    state = replace(
+                        state,
+                        hide_requested_at=None,
+                        show_key_was_down=False,
+                        hide_key_was_down=False,
+                    )
                     time.sleep(RECONNECT_DELAY)
         except Exception as exc:
             # Anything reaching here is a fault in MapHide rather than in the link to

@@ -15,9 +15,13 @@ except ImportError as e:
 
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
-# Applied to the socket, so it bounds the initial connect and every request
-# after it. A stalled streaming PC holds the worker for up to this long.
+# Bounds the socket during connect and the identify handshake. A streaming PC
+# that accepts the connection but never answers holds the worker for this long.
 CONNECT_TIMEOUT = 3
+# Bounds every request after connect (see connect_obs). Short, so a streaming PC
+# that stalls mid-session is caught in about a second rather than in 3s steps -
+# the worker then drops the link and reconnects.
+REQUEST_TIMEOUT = 1
 OBS_BAD_PASSWORD = "Failed to connect to OBS. The OBS WebSocket password appears to be incorrect."
 OBS_UNREACHABLE = "Failed to connect to OBS. Make sure OBS is open and the WebSocket server is available."
 OBS_SETTINGS_WRONG = "Failed to connect to OBS. Check that OBS is open and your connection settings are correct."
@@ -51,7 +55,7 @@ def connect_obs(host, port, password, timeout=CONNECT_TIMEOUT):
     # The try holds a single third-party call, so a broad final clause cannot mask
     # a mistake of ours - there is no MapHide logic inside it to go wrong.
     try:
-        return ReqClient(host=host, port=port, password=password, timeout=timeout)
+        client = ReqClient(host=host, port=port, password=password, timeout=timeout)
     except OBSSDKTimeoutError as exc:
         raise ObsConnectionError(OBS_UNREACHABLE) from exc
     except OBSSDKError as exc:
@@ -62,6 +66,16 @@ def connect_obs(host, port, password, timeout=CONNECT_TIMEOUT):
         raise ObsConnectionError(OBS_UNREACHABLE) from exc
     except Exception as exc:
         raise ObsConnectionError(OBS_SETTINGS_WRONG) from exc
+
+    # The connect timeout above is still on the socket as its read timeout. Drop
+    # it to REQUEST_TIMEOUT for the requests that follow. This reaches past
+    # obsws-python's public API; if a version bump moves the socket, the guard
+    # leaves the longer timeout in place rather than failing the connection.
+    try:
+        client.base_client.ws.settimeout(REQUEST_TIMEOUT)
+    except (AttributeError, OSError):
+        pass
+    return client
 
 
 def find_scene_item_id(client, scene_name, source_name):

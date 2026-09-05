@@ -4,12 +4,23 @@ import json
 import shutil
 from dataclasses import dataclass
 
-from .hotkeys import HOTKEY_TO_VK, hotkey_to_vk_codes
+from .hotkeys import (
+    HOTKEY_TO_VK,
+    hotkey_to_vk_codes,
+    is_valid_hide_hotkey,
+    is_valid_show_hotkey,
+)
 from .paths import CONFIG_PATH, LEGACY_CONFIG_PATH
 
 DEFAULT_HIDE_DELAY_MS = 120
 MIN_HIDE_DELAY_MS = 0
 MAX_HIDE_DELAY_MS = 400
+MIN_PORT = 1
+MAX_PORT = 65535
+
+
+def _clamp(value, low, high):
+    return max(low, min(high, value))
 
 
 @dataclass
@@ -30,16 +41,22 @@ class AppConfig:
         for key in required:
             if key not in data:
                 raise KeyError(f"Missing required config key: {key}")
+        hotkey = str(data.get("hotkey", "G")).upper()
+        hide_hotkey = str(data.get("hide_hotkey", "H")).upper()
         return cls(
             host=str(data["host"]).strip(),
-            port=int(data["port"]),
+            port=_clamp(int(data["port"]), MIN_PORT, MAX_PORT),
             password=str(data.get("password", "")),
             scene_item_name=str(data["scene_item_name"]).strip(),
             auto_connect=bool(data.get("auto_connect", False)),
-            hotkey=str(data.get("hotkey", "G")).upper(),
+            hotkey=hotkey if is_valid_show_hotkey(hotkey) else "G",
             toggle_mode=bool(data.get("toggle_mode", False)),
-            hide_hotkey=str(data.get("hide_hotkey", "H")).upper(),
-            hide_delay_ms=int(data.get("hide_delay_ms", DEFAULT_HIDE_DELAY_MS)),
+            hide_hotkey=hide_hotkey if is_valid_hide_hotkey(hide_hotkey) else "H",
+            hide_delay_ms=_clamp(
+                int(data.get("hide_delay_ms", DEFAULT_HIDE_DELAY_MS)),
+                MIN_HIDE_DELAY_MS,
+                MAX_HIDE_DELAY_MS,
+            ),
         )
 
     def to_dict(self):

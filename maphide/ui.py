@@ -135,6 +135,7 @@ class MapHideApp:
         self._configure_styles()
         self._build_ui()
         self._apply_window_icon()
+        self._apply_dark_titlebar()
         self._apply_footer_watermark()
         self._load_initial_config()
         self._measure_window_sizes()
@@ -145,7 +146,7 @@ class MapHideApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._setup_tray()
         self.root.after(EVENT_DRAIN_INTERVAL_MS, self._drain_events)
-        self.root.deiconify()
+        self._reveal_window()
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -512,6 +513,38 @@ class MapHideApp:
                 self.root.iconphoto(True, self.window_icon_image)
             except tk.TclError:
                 pass
+
+    def _apply_dark_titlebar(self):
+        # Tk gives Windows no hint that this is a dark app, so the title bar is
+        # drawn in the OS light theme - a permanent mismatch, and a white flash
+        # while the window first maps on a slow (software-composited) desktop.
+        # Tell DWM the caption is dark and paint it COLOR_BG to match the body.
+        try:
+            self.root.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            dwm = ctypes.windll.dwmapi
+            on = ctypes.c_int(1)
+            for use_dark in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE, older build's id
+                rc = dwm.DwmSetWindowAttribute(hwnd, use_dark, ctypes.byref(on), ctypes.sizeof(on))
+                if rc == 0:
+                    break
+            r, g, b = (int(COLOR_BG[i : i + 2], 16) for i in (1, 3, 5))
+            caption = ctypes.c_uint(r | (g << 8) | (b << 16))  # DWMWA_CAPTION_COLOR = 35
+            dwm.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(caption), ctypes.sizeof(caption))
+        except (OSError, AttributeError, tk.TclError):
+            # Older Windows, or DWM unavailable: the light title bar is cosmetic.
+            pass
+
+    def _reveal_window(self):
+        # Map the window already transparent, let it paint, then show it - so a
+        # slow compositor never displays the unpainted (light) client area.
+        try:
+            self.root.attributes("-alpha", 0.0)
+            self.root.deiconify()
+            self.root.update_idletasks()
+            self.root.attributes("-alpha", 1.0)
+        except tk.TclError:
+            self.root.deiconify()
 
     def _apply_footer_watermark(self):
         if not hasattr(self, "footer_brand"):
@@ -970,7 +1003,7 @@ class MapHideApp:
     def _show_window(self):
         current_state = self.root.state()
         if current_state == "withdrawn":
-            self.root.deiconify()
+            self._reveal_window()
         elif current_state == "iconic":
             self.root.state("normal")
         else:

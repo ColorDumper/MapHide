@@ -38,7 +38,8 @@ def run_headless():
             '  "hotkey":"G",\n'
             '  "toggle_mode":false,\n'
             '  "hide_hotkey":"H",\n'
-            '  "hide_delay_ms":120\n}'
+            '  "hide_delay_ms":120,\n'
+            '  "log_enabled":false\n}'
         )
         sys.exit(1)
 

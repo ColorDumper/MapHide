@@ -1,5 +1,6 @@
 """The worker: watches the keys, decides what the overlay should be, tells OBS."""
 
+import logging
 import queue
 import threading
 import time
@@ -7,6 +8,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 
 from .hotkeys import is_hotkey_down
+from .logs import configure_logging, logger
 from .obs import (
     ObsAuthError,
     ObsConnectionError,
@@ -74,6 +76,7 @@ class MapHideService:
             self._thread.join(timeout=timeout)
 
     def _emit(self, kind, message):
+        logger.log(logging.ERROR if kind == "error" else logging.INFO, "%s: %s", kind, message)
         self._events.put(
             {
                 "kind": kind,
@@ -83,6 +86,7 @@ class MapHideService:
         )
 
     def _run(self, cfg):
+        configure_logging(cfg.log_enabled)
         show_vk_codes = cfg.show_vk_codes()
         hide_vk_codes = cfg.hide_vk_codes()
         same_key = show_vk_codes == hide_vk_codes

@@ -119,6 +119,7 @@ class MapHideApp:
         self.show_port_var = tk.BooleanVar(value=False)
         self.show_password_var = tk.BooleanVar(value=False)
         self.auto_connect_var = tk.BooleanVar(value=False)
+        self.log_enabled_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle")
         self.help_text_var = tk.StringVar(value="Hold G to show the overlay. Release G to hide it.")
         self.running_config = default_config()
@@ -417,12 +418,18 @@ class MapHideApp:
             width=7,
         ).grid(row=0, column=1, sticky="e", padx=(10, 0))
 
+        ttk.Checkbutton(
+            self.settings_panel,
+            text="Write a debug log to the config folder",
+            variable=self.log_enabled_var,
+        ).grid(row=2, column=0, sticky="w", pady=(10, 0))
+
         ttk.Label(
             self.settings_panel,
             text="Changes apply after you click Save Settings.",
             style="Muted.TLabel",
         ).grid(
-            row=2,
+            row=3,
             column=0,
             sticky="w",
             pady=(10, 0),
@@ -541,6 +548,7 @@ class MapHideApp:
         self.password_var.set(cfg.password)
         self.item_var.set(cfg.scene_item_name)
         self.auto_connect_var.set(cfg.auto_connect)
+        self.log_enabled_var.set(cfg.log_enabled)
         self.hotkey_var.set(cfg.hotkey)
         self.toggle_mode_var.set(cfg.toggle_mode)
         self.hide_hotkey_var.set(cfg.hide_hotkey)
@@ -587,6 +595,7 @@ class MapHideApp:
             toggle_mode=toggle_mode,
             hide_hotkey=hide_hotkey,
             hide_delay_ms=hide_delay_ms,
+            log_enabled=self.log_enabled_var.get(),
         )
 
     def save_form_config(self):

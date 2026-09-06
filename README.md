@@ -207,6 +207,16 @@ C:\Users\YourName\AppData\Roaming\MapHide\config.json
 
 You never need to edit this by hand — MapHide writes it when you click `Save Settings`. If you want to start over, use `Reset Defaults` in the settings panel.
 
+## Debug Log
+
+If MapHide is misbehaving and you want to report it, tick **Write a debug log to the config folder** in the settings panel and reproduce the problem. MapHide then writes what it is doing — connecting, scene changes, show and hide actions, and errors — to:
+
+```text
+%AppData%\MapHide\maphide-debug.log
+```
+
+The log never contains your OBS password. It is off by default, starts fresh each time you open MapHide (the previous two runs are kept next to it as `maphide-debug.1.log` and `maphide-debug.2.log`), and stays small. Untick the box to stop logging.
+
 ## Notes
 
 - The OBS host, port, and password are hidden by default in the UI.

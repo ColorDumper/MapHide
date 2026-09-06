@@ -34,6 +34,7 @@ class AppConfig:
     toggle_mode: bool = False
     hide_hotkey: str = "H"
     hide_delay_ms: int = DEFAULT_HIDE_DELAY_MS
+    log_enabled: bool = False
 
     @classmethod
     def from_dict(cls, data):
@@ -57,6 +58,7 @@ class AppConfig:
                 MIN_HIDE_DELAY_MS,
                 MAX_HIDE_DELAY_MS,
             ),
+            log_enabled=bool(data.get("log_enabled", False)),
         )
 
     def to_dict(self):
@@ -70,6 +72,7 @@ class AppConfig:
             "toggle_mode": self.toggle_mode,
             "hide_hotkey": self.hide_hotkey,
             "hide_delay_ms": self.hide_delay_ms,
+            "log_enabled": self.log_enabled,
         }
 
     def show_vk_codes(self):
@@ -90,6 +93,7 @@ def default_config():
         toggle_mode=False,
         hide_hotkey="H",
         hide_delay_ms=DEFAULT_HIDE_DELAY_MS,
+        log_enabled=False,
     )
 
 

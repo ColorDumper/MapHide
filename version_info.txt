@@ -2,7 +2,7 @@
 #
 # PyInstaller version resource for MapHide.exe
 # Keep filevers / prodvers and the version strings in sync with
-# APP_VERSION in map_hider.py.
+# APP_VERSION in maphide/paths.py. A tagged build checks this in CI.
 
 VSVersionInfo(
   ffi=FixedFileInfo(

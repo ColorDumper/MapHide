@@ -62,7 +62,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      # A tagged build must match the version baked into the app.
+      # A tagged build must match the version baked into the app: APP_VERSION
+      # drives the runtime, version_info.txt drives the exe's file properties.
       - name: Check version matches tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
@@ -75,6 +76,23 @@ jobs:
             Write-Error "Tag '$tag' does not match APP_VERSION '$appVersion' in maphide/paths.py. Bump the version strings before tagging."
             exit 1
           }
+
+          $digits = $tag.TrimStart('v')
+          $want4 = "$digits.0"
+          $wantTuple = ($digits -replace '\.', ', ') + ', 0'
+          $vi = Get-Content version_info.txt -Raw
+          $required = @(
+            "filevers=($wantTuple)"
+            "prodvers=($wantTuple)"
+            "StringStruct(`"FileVersion`", `"$want4`")"
+            "StringStruct(`"ProductVersion`", `"$want4`")"
+          )
+          $missing = $required | Where-Object { -not $vi.Contains($_) }
+          if ($missing) {
+            Write-Error "version_info.txt is out of sync with tag '$tag'. Expected: $($missing -join '; '). Update version_info.txt before tagging."
+            exit 1
+          }
+          Write-Host "version_info.txt matches $tag"
 
       - name: Build
         run: pyinstaller --noconfirm MapHide.spec

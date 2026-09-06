@@ -3,3 +3,4 @@
 -r requirements.txt
 pyinstaller==6.19.0
 pytest==9.1.1
+ruff==0.16.6

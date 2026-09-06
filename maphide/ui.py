@@ -121,7 +121,9 @@ class MapHideApp:
         self.auto_connect_var = tk.BooleanVar(value=False)
         self.log_enabled_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle")
-        self.help_text_var = tk.StringVar(value="Hold G to show the overlay. Release G to hide it.")
+        self.help_text_var = tk.StringVar(
+            value="Hold G to show the overlay. Release G to hide it."
+        )
         self.running_config = default_config()
         self.key_capture_target = None
 
@@ -153,8 +155,15 @@ class MapHideApp:
 
         style.configure(".", background=COLOR_BG, foreground=COLOR_TEXT)
         style.configure("TFrame", background=COLOR_BG)
-        style.configure("Header.TLabel", background=COLOR_BG, foreground=COLOR_TEXT, font=("Segoe UI Semibold", 11))
-        style.configure("Version.TLabel", background=COLOR_BG, foreground=COLOR_MUTED, font=("Segoe UI", 9))
+        style.configure(
+            "Header.TLabel",
+            background=COLOR_BG,
+            foreground=COLOR_TEXT,
+            font=("Segoe UI Semibold", 11),
+        )
+        style.configure(
+            "Version.TLabel", background=COLOR_BG, foreground=COLOR_MUTED, font=("Segoe UI", 9)
+        )
         style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT)
         style.configure("Muted.TLabel", background=COLOR_PANEL, foreground=COLOR_MUTED)
         style.configure(
@@ -178,7 +187,11 @@ class MapHideApp:
         )
         style.map(
             "TButton",
-            background=[("active", COLOR_ACCENT), ("pressed", COLOR_ACCENT_ACTIVE), ("disabled", COLOR_PANEL_ALT)],
+            background=[
+                ("active", COLOR_ACCENT),
+                ("pressed", COLOR_ACCENT_ACTIVE),
+                ("disabled", COLOR_PANEL_ALT),
+            ],
             foreground=[("disabled", COLOR_DISABLED)],
             bordercolor=[("active", COLOR_ACCENT)],
         )
@@ -234,7 +247,9 @@ class MapHideApp:
         title_row = ttk.Frame(header_row)
         title_row.grid(row=0, column=0, sticky="w")
 
-        ttk.Label(title_row, text="MapHide", style="Header.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(title_row, text="MapHide", style="Header.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
         ttk.Label(title_row, text=APP_VERSION, style="Version.TLabel").grid(
             row=0,
             column=1,
@@ -242,7 +257,9 @@ class MapHideApp:
             padx=(6, 0),
             pady=(0, 1),
         )
-        self.settings_button = ttk.Button(header_row, text=SETTINGS_SHOW_LABEL, command=self.toggle_settings_panel)
+        self.settings_button = ttk.Button(
+            header_row, text=SETTINGS_SHOW_LABEL, command=self.toggle_settings_panel
+        )
         self.settings_button.grid(row=0, column=1, sticky="e")
 
         controls_frame = ttk.LabelFrame(left_panel, text="Controls", padding=12)
@@ -255,7 +272,9 @@ class MapHideApp:
         self.start_button = ttk.Button(button_row, text="Start", command=self.start_service)
         self.start_button.grid(row=0, column=0, padx=(0, 8))
 
-        self.stop_button = ttk.Button(button_row, text="Stop", command=self.stop_service, state="disabled")
+        self.stop_button = ttk.Button(
+            button_row, text="Stop", command=self.stop_service, state="disabled"
+        )
         self.stop_button.grid(row=0, column=1, padx=(0, 8))
 
         ttk.Checkbutton(
@@ -265,7 +284,9 @@ class MapHideApp:
             command=self.save_form_config,
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 2))
 
-        ttk.Label(controls_frame, text="Status").grid(row=2, column=0, sticky="nw", pady=(8, 2), padx=(0, 10))
+        ttk.Label(controls_frame, text="Status").grid(
+            row=2, column=0, sticky="nw", pady=(8, 2), padx=(0, 10)
+        )
         status_area = tk.Frame(
             controls_frame,
             width=STATUS_AREA_WIDTH,
@@ -306,7 +327,9 @@ class MapHideApp:
         )
         self.help_label.place(x=0, y=0, width=HELP_AREA_WIDTH, height=HELP_AREA_HEIGHT)
 
-        self.footer_brand = ttk.Label(left_panel, text="Color Dumper • 2026", style="Version.TLabel")
+        self.footer_brand = ttk.Label(
+            left_panel, text="Color Dumper • 2026", style="Version.TLabel"
+        )
         self.footer_brand.grid(
             row=2,
             column=0,
@@ -323,8 +346,12 @@ class MapHideApp:
         source_frame.grid(row=0, column=0, sticky="ew")
         source_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(source_frame, text="Source Name").grid(row=0, column=0, sticky="w", pady=4, padx=(0, 10))
-        ttk.Entry(source_frame, textvariable=self.item_var, width=34).grid(row=0, column=1, sticky="ew", pady=4)
+        ttk.Label(source_frame, text="Source Name").grid(
+            row=0, column=0, sticky="w", pady=4, padx=(0, 10)
+        )
+        ttk.Entry(source_frame, textvariable=self.item_var, width=34).grid(
+            row=0, column=1, sticky="ew", pady=4
+        )
 
         ttk.Label(
             source_frame,
@@ -356,8 +383,12 @@ class MapHideApp:
             command=self._update_sensitive_visibility,
         ).grid(row=1, column=2, sticky="w", padx=(10, 0))
 
-        ttk.Label(obs_frame, text="Password").grid(row=2, column=0, sticky="w", pady=4, padx=(0, 10))
-        self.password_entry = ttk.Entry(obs_frame, textvariable=self.password_var, width=34, show="*")
+        ttk.Label(obs_frame, text="Password").grid(
+            row=2, column=0, sticky="w", pady=4, padx=(0, 10)
+        )
+        self.password_entry = ttk.Entry(
+            obs_frame, textvariable=self.password_var, width=34, show="*"
+        )
         self.password_entry.grid(row=2, column=1, sticky="ew", pady=4)
         ttk.Checkbutton(
             obs_frame,
@@ -398,7 +429,9 @@ class MapHideApp:
         )
         self.toggle_mode_check.grid(row=0, column=3, sticky="w", padx=(8, 0))
 
-        ttk.Label(obs_frame, text="Hide delay").grid(row=4, column=0, sticky="w", pady=4, padx=(0, 10))
+        ttk.Label(obs_frame, text="Hide delay").grid(
+            row=4, column=0, sticky="w", pady=4, padx=(0, 10)
+        )
         hide_delay_frame = ttk.Frame(obs_frame)
         hide_delay_frame.grid(row=4, column=1, columnspan=2, sticky="ew", pady=4)
         hide_delay_frame.columnconfigure(0, weight=1)
@@ -737,7 +770,9 @@ class MapHideApp:
                 f"Press {hotkey} to show the overlay. Press {hide_hotkey} to hide it."
             )
         else:
-            self.help_text_var.set(f"Hold {hotkey} to show the overlay. Release {hotkey} to hide it.")
+            self.help_text_var.set(
+                f"Hold {hotkey} to show the overlay. Release {hotkey} to hide it."
+            )
 
     def _update_toggle_mode_ui(self):
         toggle_mode = self.toggle_mode_var.get()
@@ -755,10 +790,14 @@ class MapHideApp:
     def _sync_key_buttons(self):
         if hasattr(self, "hotkey_button"):
             if self.key_capture_target != "show":
-                self.hotkey_button.configure(text=self.hotkey_var.get().strip().upper() or KEY_UNSET_LABEL)
+                self.hotkey_button.configure(
+                    text=self.hotkey_var.get().strip().upper() or KEY_UNSET_LABEL
+                )
         if hasattr(self, "hide_hotkey_button"):
             if self.key_capture_target != "hide":
-                self.hide_hotkey_button.configure(text=self.hide_hotkey_var.get().strip().upper() or KEY_UNSET_LABEL)
+                self.hide_hotkey_button.configure(
+                    text=self.hide_hotkey_var.get().strip().upper() or KEY_UNSET_LABEL
+                )
 
     def _start_key_capture(self, target):
         if self.key_capture_target == target:
@@ -779,9 +818,13 @@ class MapHideApp:
 
     def _stop_key_capture(self):
         if self.key_capture_target == "show" and hasattr(self, "hotkey_button"):
-            self.hotkey_button.configure(text=self.hotkey_var.get().strip().upper() or KEY_UNSET_LABEL)
+            self.hotkey_button.configure(
+                text=self.hotkey_var.get().strip().upper() or KEY_UNSET_LABEL
+            )
         elif self.key_capture_target == "hide" and hasattr(self, "hide_hotkey_button"):
-            self.hide_hotkey_button.configure(text=self.hide_hotkey_var.get().strip().upper() or KEY_UNSET_LABEL)
+            self.hide_hotkey_button.configure(
+                text=self.hide_hotkey_var.get().strip().upper() or KEY_UNSET_LABEL
+            )
         self.key_capture_target = None
 
     def _handle_key_capture_press(self, event):
@@ -889,7 +932,9 @@ class MapHideApp:
             pystray.MenuItem("Exit", self._on_tray_exit),
         )
         self.tray_icon = pystray.Icon(APP_NAME, self._create_tray_image(), WINDOW_TITLE, menu)
-        self.tray_thread = threading.Thread(target=self.tray_icon.run, name="TrayIcon", daemon=True)
+        self.tray_thread = threading.Thread(
+            target=self.tray_icon.run, name="TrayIcon", daemon=True
+        )
         self.tray_thread.start()
 
     def _create_tray_image(self):
@@ -951,7 +996,6 @@ class MapHideApp:
         if self.exit_requested:
             return
         self._hide_to_tray()
-
 
 
 def run_gui():

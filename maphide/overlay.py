@@ -1,4 +1,4 @@
-"""The worker: watches the keys, decides what the overlay should be, tells OBS."""
+"""The worker: polls the keys, runs the overlay decision, drives OBS."""
 
 import logging
 import queue
@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from .hotkeys import is_hotkey_down
 from .logs import configure_logging, logger
 from .obs import (
+    OBS_OVERLAY_MAY_REMAIN,
     ObsAuthError,
     ObsConnectionError,
     connect_obs,
@@ -23,7 +24,6 @@ from .state import HIDE, SHOW, OverlayState, decide
 POLL_INTERVAL = 0.005
 SCENE_REFRESH_INTERVAL = 0.25
 RECONNECT_DELAY = 2.0
-OBS_OVERLAY_MAY_REMAIN = "MapHide stopped, but lost the connection before it could hide the overlay. Check OBS."
 
 
 def scene_status(cfg, scene_name):
@@ -92,7 +92,6 @@ class MapHideService:
         same_key = show_vk_codes == hide_vk_codes
         client = None
         state = OverlayState()
-        item_id = None
         scene_items = {}
         overlay_available = False
         active_scene_name = None
@@ -107,7 +106,6 @@ class MapHideService:
                     try:
                         self._emit("status", "Connecting to OBS...")
                         client = connect_obs(cfg.host, cfg.port, cfg.password)
-                        item_id = None
                         active_scene_name = None
                         last_scene_refresh = datetime.min
                         state = replace(
@@ -142,9 +140,10 @@ class MapHideService:
                             # Re-read every scene, not just this one: the source may have
                             # been added to a scene since the last look.
                             scene_items = find_overlay_scene_items(client, cfg.scene_item_name)
-                            item_id = scene_items.get(active_scene_name)
-                            overlay_available = any(found is not None for found in scene_items.values())
-                            if item_id is None:
+                            overlay_available = any(
+                                found is not None for found in scene_items.values()
+                            )
+                            if scene_items.get(active_scene_name) is None:
                                 self._emit(
                                     "status",
                                     f"Scene: {active_scene_name}. "
@@ -198,7 +197,6 @@ class MapHideService:
                     # They are the only record of what the overlay should be and of what
                     # OBS was last told, and the scene resolution above uses them to put
                     # things right on reconnect.
-                    item_id = None
                     active_scene_name = None
                     state = replace(
                         state,

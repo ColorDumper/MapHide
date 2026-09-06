@@ -24,9 +24,7 @@ BASE = {
 
 
 def test_from_dict_keeps_valid_values():
-    cfg = AppConfig.from_dict(
-        {**BASE, "hotkey": "M", "hide_hotkey": "ESC", "hide_delay_ms": 200}
-    )
+    cfg = AppConfig.from_dict({**BASE, "hotkey": "M", "hide_hotkey": "ESC", "hide_delay_ms": 200})
     assert (cfg.hotkey, cfg.hide_hotkey, cfg.hide_delay_ms, cfg.port) == (
         "M",
         "ESC",
@@ -37,7 +35,9 @@ def test_from_dict_keeps_valid_values():
 
 def test_from_dict_clamps_hide_delay_out_of_range():
     assert AppConfig.from_dict({**BASE, "hide_delay_ms": -50}).hide_delay_ms == MIN_HIDE_DELAY_MS
-    assert AppConfig.from_dict({**BASE, "hide_delay_ms": 10_000}).hide_delay_ms == MAX_HIDE_DELAY_MS
+    assert (
+        AppConfig.from_dict({**BASE, "hide_delay_ms": 10_000}).hide_delay_ms == MAX_HIDE_DELAY_MS
+    )
 
 
 def test_from_dict_clamps_out_of_range_port():

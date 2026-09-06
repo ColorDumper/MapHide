@@ -234,9 +234,7 @@ def test_hold_sends_nothing_while_the_source_is_missing():
 
 def test_toggle_ignores_presses_while_the_source_is_missing():
     cfg = toggle_config(hotkey="M", hide_hotkey="M")
-    state, actions = drive(
-        cfg, [(0, True, True), (100, False, False)], overlay_available=False
-    )
+    state, actions = drive(cfg, [(0, True, True), (100, False, False)], overlay_available=False)
     assert actions == []
     assert state.desired_visible is False
 

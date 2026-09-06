@@ -2,16 +2,18 @@
 
 import json
 import logging
-import sys
 
 try:
     import websocket
     from obsws_python import ReqClient
     from obsws_python.error import OBSSDKError, OBSSDKRequestError, OBSSDKTimeoutError
-except ImportError as e:
-    print("ERROR: obsws_python not installed or import failed:", e)
-    print("Install in your venv: pip install obsws-python")
-    sys.exit(1)
+except ImportError as exc:
+    # Raise rather than exit the interpreter, so importing this module never
+    # takes a test runner or the GUI down with it.
+    raise ImportError(
+        "obsws-python (and its websocket-client dependency) is required. "
+        "Install dependencies with: pip install -r requirements.txt"
+    ) from exc
 
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
@@ -23,12 +25,18 @@ CONNECT_TIMEOUT = 3
 # the worker then drops the link and reconnects.
 REQUEST_TIMEOUT = 1
 OBS_BAD_PASSWORD = "Failed to connect to OBS. The OBS WebSocket password appears to be incorrect."
-OBS_UNREACHABLE = "Failed to connect to OBS. Make sure OBS is open and the WebSocket server is available."
-OBS_SETTINGS_WRONG = "Failed to connect to OBS. Check that OBS is open and your connection settings are correct."
+OBS_UNREACHABLE = (
+    "Failed to connect to OBS. Make sure OBS is open and the WebSocket server is available."
+)
+OBS_SETTINGS_WRONG = (
+    "Failed to connect to OBS. Check that OBS is open and your connection settings are correct."
+)
 OBS_LINK_LOST = "The connection to OBS was lost. Reconnect after OBS is available again."
 OBS_READ_REFUSED = "OBS returned an error while reading the current scene."
 OBS_WRITE_REFUSED = "OBS returned an error while updating the overlay source."
-OBS_OVERLAY_MAY_REMAIN = "MapHide stopped, but lost the connection before it could hide the overlay. Check OBS."
+OBS_OVERLAY_MAY_REMAIN = (
+    "MapHide stopped, but lost the connection before it could hide the overlay. Check OBS."
+)
 
 
 class ObsConnectionError(Exception):

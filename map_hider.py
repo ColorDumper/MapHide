@@ -5,16 +5,21 @@ Entry point for MapHide. Runs on the gaming PC, watches for the configured
 key, and tells OBS on the streaming PC to show or hide the overlay source.
 
 The application itself lives in the maphide package:
+    config.py   the settings file: its shape, and reading and writing it
     hotkeys.py  reading the keyboard
-    overlay.py  deciding what the overlay should be
-    obs.py      sending that to OBS over the WebSocket
+    state.py    deciding what the overlay should be (pure, no I/O)
+    overlay.py  the worker: polls the keys, runs the decision, drives OBS
+    obs.py      talking to OBS over the WebSocket
     ui.py       the settings window and tray icon
+    paths.py    where MapHide's files live
+    logs.py     the opt-in debug log
 """
 
+import json
 import queue
 import sys
 
-from maphide.config import load_config
+from maphide.config import default_config, load_config
 from maphide.overlay import MapHideService
 from maphide.paths import CONFIG_PATH
 
@@ -28,19 +33,8 @@ def run_headless():
         cfg = load_config()
     except (OSError, ValueError, KeyError) as exc:
         print("Failed to load config:", exc)
-        print(
-            'Example config:\n{\n'
-            '  "host":"",\n'
-            '  "port":4455,\n'
-            '  "password":"",\n'
-            '  "scene_item_name":"",\n'
-            '  "auto_connect":false,\n'
-            '  "hotkey":"G",\n'
-            '  "toggle_mode":false,\n'
-            '  "hide_hotkey":"H",\n'
-            '  "hide_delay_ms":120,\n'
-            '  "log_enabled":false\n}'
-        )
+        print("Example config:")
+        print(json.dumps(default_config().to_dict(), indent=2))
         sys.exit(1)
 
     service = MapHideService()
@@ -73,7 +67,6 @@ def run_headless():
         print("\nExiting - stopping service...")
         service.stop()
         service.wait(timeout=SHUTDOWN_WAIT_SECONDS)
-
 
 
 def run_selftest():

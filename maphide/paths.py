@@ -4,7 +4,6 @@ import os
 import sys
 from pathlib import Path
 
-
 if getattr(sys, "frozen", False):
     # PyInstaller: bundled data lives under sys._MEIPASS (a temp dir for
     # one-file builds, the _internal folder for one-dir builds).

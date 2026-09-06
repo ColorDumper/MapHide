@@ -15,7 +15,9 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
-    optimize=0,
+    # -OO on the bundled bytecode: drops asserts and docstrings for a small size
+    # win. MapHide uses no asserts and reads none of its own docstrings at runtime.
+    optimize=2,
 )
 pyz = PYZ(a.pure)
 

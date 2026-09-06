@@ -46,7 +46,13 @@ MapHide keeps keybind support intentionally simple for reliability.
 - **Toggle mode show key**: `A-Z`
 - **Toggle mode hide key**: `A-Z`, `Esc`, `Shift`, or `Shift + A-Z`
 
-The hide key supports `Esc` and `Shift + letter` because some games use one key to open the map and a different key or shortcut to close it.
+The hide key supports `Esc` and `Shift + letter` because some games use one key to open the map and a different key or shortcut to close it. In toggle mode, setting the show key and hide key to the same key makes each press flip the overlay on or off.
+
+## Anti-cheat
+
+MapHide only **reads** global key state through a standard Windows API — the same mechanism many streaming and macro tools use to check whether a key is held. It does not inject keystrokes, hook into the game, read or write game memory, or touch any game files.
+
+It is an unsigned executable that polls the keyboard continuously, which is behavior a kernel-level anti-cheat could in principle treat as suspicious. Using it is at your own discretion.
 
 ## Requirements
 
@@ -69,7 +75,7 @@ On the **streaming PC**:
 3. Enable the WebSocket server.
 4. Confirm the server port.
 5. The default OBS WebSocket port is usually `4455`.
-6. Set or confirm the WebSocket password.
+6. Set or confirm the WebSocket password — ideally one you do not use anywhere else.
 7. Apply/save the OBS WebSocket settings.
 
 ### 2. Streaming PC: Create The Overlay Source
@@ -148,49 +154,6 @@ After clicking `Start`:
 
 If the map flashes for a split second when closing, raise the hide delay slightly.
 
-## Hold Mode
-
-Hold mode is best for games where the map is visible only while you hold a key.
-
-Example:
-
-- Hold `G` to show the overlay
-- Release `G` to hide the overlay after the configured delay
-
-## Toggle Mode
-
-Toggle mode is best for games where the map is opened and closed with key presses instead of holding one key.
-
-Example:
-
-- Press `M` to show the overlay
-- Press `Shift + M` to hide the overlay
-
-Another common setup:
-
-- Press `M` to show the overlay
-- Press `Esc` to hide the overlay
-
-You can also use the same key for both show and hide:
-
-- Press `M` once to show the overlay
-- Press `M` again to hide the overlay
-
-Toggle mode uses two keybinds:
-
-- **Show key**: the key that opens the map and shows the overlay
-- **Hide key**: the key or shortcut that closes the map and hides the overlay
-
-If the show key and hide key are the same, MapHide treats each new key press as a toggle.
-
-## Hide Delay
-
-The hide delay controls how long MapHide waits before hiding the OBS overlay after your map close key is released or pressed.
-
-This helps cover games with small map-closing animations where the map can briefly flash on stream. A higher delay keeps the overlay visible slightly longer. A lower delay hides it faster.
-
-The default is `120 ms`.
-
 ## Config Location
 
 MapHide stores your settings here:
@@ -206,6 +169,8 @@ C:\Users\YourName\AppData\Roaming\MapHide\config.json
 ```
 
 You never need to edit this by hand — MapHide writes it when you click `Save Settings`. If you want to start over, use `Reset Defaults` in the settings panel.
+
+This file is plain text, and that includes your OBS WebSocket password — any program running as your Windows user can read it (OBS stores its own copy the same way). The MapHide-to-OBS connection also crosses your local network unencrypted. For both reasons, use a WebSocket password that you do not reuse anywhere else.
 
 ## Debug Log
 

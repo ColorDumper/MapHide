@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Runtime and build dependencies (requirements.txt, requirements-dev.txt).
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns:
+          - "*"
+
+  # Versions used in .github/workflows/.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

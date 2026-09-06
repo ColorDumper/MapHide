@@ -13,7 +13,7 @@ else:
     # entry point are in the parent directory.
     APP_DIR = Path(__file__).resolve().parent.parent
 APP_NAME = "MapHide"
-APP_VERSION = "v0.2.4"
+APP_VERSION = "v0.2.5"
 CONFIG_DIR = Path(os.getenv("APPDATA", APP_DIR)) / APP_NAME
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LEGACY_CONFIG_PATH = APP_DIR / "config.json"

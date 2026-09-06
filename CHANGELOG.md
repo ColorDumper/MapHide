@@ -2,6 +2,22 @@
 
 All notable changes to MapHide are documented here.
 
+## v0.2.5 - 2026-09-05
+
+- The title bar is now dark to match the rest of the window, and the window
+  no longer flashes white for a moment when it opens or when you restore it
+  from the tray.
+- When the streaming PC stops responding mid-session, MapHide now notices in
+  about a second instead of three and reconnects that much sooner.
+- Added an optional debug log. Tick "Write a debug log to the config folder"
+  in the settings panel before reproducing a problem, and MapHide records what
+  it is doing to a file next to your settings. It is off by default and never
+  includes your OBS password.
+- A settings file with an out-of-range port or hide delay, or a keybind
+  MapHide cannot use, is now corrected when it loads instead of causing errors.
+- Updated bundled third-party components.
+- Further internal cleanup, with no change to how MapHide works.
+
 ## v0.2.4 - 2026-09-04
 
 - Fixed the overlay staying on screen after the connection to OBS dropped.

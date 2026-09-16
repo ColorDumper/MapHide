@@ -71,15 +71,6 @@ def normalize_event_key(keysym):
     return None
 
 
-def is_key_down(vk_code):
-    state = ctypes.windll.user32.GetAsyncKeyState(vk_code)
-    return (state & KEY_DOWN_MASK) != 0
-
-
-def is_hotkey_down(vk_codes):
-    return bool(vk_codes) and all(is_key_down(code) for code in vk_codes)
-
-
 def read_key_state(vk_code):
     # One call, since GetAsyncKeyState clears its own was-pressed-since-last-call
     # bit each time it is asked - reading the two bits separately would clear the

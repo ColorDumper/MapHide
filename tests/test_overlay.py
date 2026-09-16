@@ -1,13 +1,13 @@
 """Tests for the per-scene visibility tracking that lets a hotkey toggle touch
 only the active scene while every other known scene still converges to the
-same value shortly after - written before the implementation exists.
+same value shortly after.
 
-Two real regressions drove this design and both get a dedicated test:
+Two scenarios get a dedicated regression test:
 - a key blip landing on the same poll as a detected scene switch must not
-  leak into what gets written to OBS (the first attempt's bug), and
+  leak into what gets written to OBS, and
 - a scene that isn't currently active must be caught up in the background
   before you switch back to it, not reactively (and visibly) at the moment
-  you do (the second attempt's bug).
+  you do.
 """
 
 from datetime import datetime, timedelta
@@ -177,8 +177,8 @@ def test_background_catch_up_fixes_a_stale_scene_before_you_return_to_it():
     # touched by the hot path, exactly like overlay.py's HIDE branch.
     sync_scene(client, scene_items, scene_synced, "Just Chatting", False)
 
-    # At this instant, Gameplay is genuinely stale - this is the bug that
-    # caused the visible flash last time, caught here rather than live.
+    # At this instant, Gameplay is genuinely stale - left uncorrected, it
+    # would still show True in OBS until something writes False to it.
     assert scene_is_stale(scene_items, scene_synced, "Gameplay", False) is True
 
     # One background catch-up step, run the way overlay.py runs it every

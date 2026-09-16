@@ -7,11 +7,13 @@ import threading
 
 try:
     import tkinter as tk
+    from tkinter import font as tkfont
     from tkinter import messagebox, ttk
 except ImportError:
     tk = None
     ttk = None
     messagebox = None
+    tkfont = None
 
 try:
     import pystray
@@ -82,6 +84,7 @@ COLOR_ACCENT = "#4da3ff"
 COLOR_ACCENT_ACTIVE = "#78b8ff"
 COLOR_INPUT = "#111923"
 COLOR_DISABLED = "#5a6472"
+COLOR_WARNING = "#e6b450"
 
 
 def set_windows_app_id():
@@ -108,6 +111,8 @@ class MapHideApp:
         self.host_var = tk.StringVar()
         self.port_var = tk.StringVar()
         self.password_var = tk.StringVar()
+        self.password_warning_var = tk.StringVar()
+        self._password_tooltip = None
         self.item_var = tk.StringVar()
         self.hotkey_var = tk.StringVar(value="G")
         self.hide_hotkey_var = tk.StringVar(value="H")
@@ -167,6 +172,17 @@ class MapHideApp:
         )
         style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT)
         style.configure("Muted.TLabel", background=COLOR_PANEL, foreground=COLOR_MUTED)
+        default_font = tkfont.nametofont("TkDefaultFont")
+        # A couple of points larger and bold, so the mark is easy to spot and land a
+        # hover on without the row growing any taller than the entry field beside it.
+        self._warning_font = tkfont.Font(
+            family=default_font.cget("family"),
+            size=default_font.cget("size") + 2,
+            weight="bold",
+        )
+        style.configure(
+            "Warning.TLabel", background=COLOR_BG, foreground=COLOR_WARNING, font=self._warning_font
+        )
         style.configure(
             "TLabelFrame",
             background=COLOR_BG,
@@ -384,9 +400,20 @@ class MapHideApp:
             command=self._update_sensitive_visibility,
         ).grid(row=1, column=2, sticky="w", padx=(10, 0))
 
-        ttk.Label(obs_frame, text="Password").grid(
-            row=2, column=0, sticky="w", pady=4, padx=(0, 10)
+        password_label_frame = ttk.Frame(obs_frame)
+        password_label_frame.grid(row=2, column=0, sticky="w", pady=4, padx=(0, 10))
+        ttk.Label(password_label_frame, text="Password").pack(side="left")
+        self.password_warning_label = ttk.Label(
+            password_label_frame,
+            textvariable=self.password_warning_var,
+            style="Warning.TLabel",
+            width=2,
+            anchor="w",
         )
+        self.password_warning_label.pack(side="left", padx=(4, 0))
+        self.password_warning_label.bind("<Enter>", self._show_password_tooltip)
+        self.password_warning_label.bind("<Leave>", self._hide_password_tooltip)
+
         self.password_entry = ttk.Entry(
             obs_frame, textvariable=self.password_var, width=34, show="*"
         )
@@ -397,6 +424,7 @@ class MapHideApp:
             variable=self.show_password_var,
             command=self._update_sensitive_visibility,
         ).grid(row=2, column=2, sticky="w", padx=(10, 0))
+        self.password_entry.bind("<KeyRelease>", lambda _event: self._update_password_warning())
 
         self.hotkey_caption = ttk.Label(obs_frame, textvariable=self.hotkey_caption_var)
         self.hotkey_caption.grid(row=3, column=0, sticky="w", pady=4, padx=(0, 10))
@@ -453,31 +481,31 @@ class MapHideApp:
         ).grid(row=0, column=1, sticky="e", padx=(10, 0))
 
         ttk.Checkbutton(
-            self.settings_panel,
+            obs_frame,
             text="Write a debug log to the config folder",
             variable=self.log_enabled_var,
-        ).grid(row=2, column=0, sticky="w", pady=(10, 0))
+        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
         ttk.Label(
             self.settings_panel,
             text="Changes apply after you click Save Settings.",
             style="Muted.TLabel",
         ).grid(
-            row=3,
+            row=2,
             column=0,
             sticky="w",
             pady=(10, 0),
         )
 
         ttk.Button(self.settings_panel, text="Save Settings", command=self.save_form_config).grid(
-            row=3,
+            row=2,
             column=0,
             sticky="e",
             pady=(10, 0),
         )
 
         ttk.Button(self.settings_panel, text="Reset Defaults", command=self.reset_defaults).grid(
-            row=4,
+            row=3,
             column=0,
             sticky="e",
             pady=(8, 0),
@@ -620,6 +648,7 @@ class MapHideApp:
         self.hide_hotkey_var.set(cfg.hide_hotkey)
         self.hide_delay_var.set(cfg.hide_delay_ms)
         self._update_hide_delay_label()
+        self._update_password_warning()
         self._update_toggle_mode_ui()
         self._sync_key_buttons()
         self._update_help_text()
@@ -909,6 +938,41 @@ class MapHideApp:
 
     def _update_hide_delay_label(self):
         self.hide_delay_label_var.set(f"{self._clamp_hide_delay(self.hide_delay_var.get())} ms")
+
+    def _update_password_warning(self):
+        # OBS's own WebSocket server decides whether a password is required at
+        # all - MapHide only ever sends whatever is in this field - so this is
+        # a nudge, not a validation error, and never blocks Start or Save.
+        self.password_warning_var.set("" if self.password_var.get() else "!")
+        if not self.password_warning_var.get():
+            self._hide_password_tooltip()
+
+    def _show_password_tooltip(self, _event=None):
+        if not self.password_warning_var.get() or self._password_tooltip is not None:
+            return
+        label = self.password_warning_label
+        x = label.winfo_rootx() + label.winfo_width() + 6
+        y = label.winfo_rooty() - 2
+        tip = tk.Toplevel(self.root)
+        tip.wm_overrideredirect(True)
+        tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(
+            tip,
+            text="No password set - anyone on your network can control OBS.",
+            background=COLOR_PANEL,
+            foreground=COLOR_MUTED,
+            font=tkfont.nametofont("TkDefaultFont"),
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+            padx=8,
+            pady=4,
+        ).pack()
+        self._password_tooltip = tip
+
+    def _hide_password_tooltip(self, _event=None):
+        if self._password_tooltip is not None:
+            self._password_tooltip.destroy()
+            self._password_tooltip = None
 
     def _clamp_hide_delay(self, value):
         try:

@@ -47,6 +47,11 @@ class ObsAuthError(ObsConnectionError):
     pass
 
 
+class ObsUnreachableError(ObsConnectionError):
+    """OBS didn't answer at all - a timed-out or refused connection, the kind
+    you get when OBS just hasn't been opened yet rather than from bad settings."""
+
+
 # What a lost link looks like by the time it reaches MapHide: obsws-python's own
 # timeout wrapper, websocket-client's closed/timeout family, the socket errors
 # underneath them, and - because OBS signals a rejected session by closing the
@@ -65,13 +70,13 @@ def connect_obs(host, port, password, timeout=CONNECT_TIMEOUT):
     try:
         client = ReqClient(host=host, port=port, password=password, timeout=timeout)
     except OBSSDKTimeoutError as exc:
-        raise ObsConnectionError(OBS_UNREACHABLE) from exc
+        raise ObsUnreachableError(OBS_UNREACHABLE) from exc
     except OBSSDKError as exc:
         # OBS closes the socket on a bad password rather than answering, so
         # obsws-python reports it as a failed identify.
         raise ObsAuthError(OBS_BAD_PASSWORD) from exc
     except OSError as exc:
-        raise ObsConnectionError(OBS_UNREACHABLE) from exc
+        raise ObsUnreachableError(OBS_UNREACHABLE) from exc
     except Exception as exc:
         raise ObsConnectionError(OBS_SETTINGS_WRONG) from exc
 

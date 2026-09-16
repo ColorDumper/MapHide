@@ -13,6 +13,7 @@ from .obs import (
     OBS_OVERLAY_MAY_REMAIN,
     ObsAuthError,
     ObsConnectionError,
+    ObsUnreachableError,
     connect_obs,
     disconnect_obs,
     find_overlay_scene_items,
@@ -122,10 +123,16 @@ class MapHideService:
                         if not announced_connection_failure:
                             self._emit("error", error_message)
                             announced_connection_failure = True
-                        # A wrong password will not start working on its own, and a
-                        # first attempt that never succeeded usually means the settings
-                        # are wrong. Both wait for the user instead of retrying forever.
-                        if isinstance(exc, ObsAuthError) or not had_successful_connection:
+                        # A wrong password will not start working on its own. An
+                        # unreachable OBS often just hasn't been opened yet, including
+                        # on the very first attempt, so that keeps retrying. Any other
+                        # failure on a first attempt that never succeeded usually means
+                        # the settings are wrong, so that one still waits for the user.
+                        give_up = isinstance(exc, ObsAuthError) or (
+                            not had_successful_connection
+                            and not isinstance(exc, ObsUnreachableError)
+                        )
+                        if give_up:
                             final_status_message = error_message
                             break
                         time.sleep(RECONNECT_DELAY)

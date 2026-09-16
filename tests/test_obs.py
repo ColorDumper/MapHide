@@ -9,6 +9,7 @@ from maphide.obs import (
     REQUEST_TIMEOUT,
     ObsAuthError,
     ObsConnectionError,
+    ObsUnreachableError,
     connect_obs,
 )
 
@@ -59,9 +60,9 @@ def test_shortening_the_socket_is_best_effort(monkeypatch):
 @pytest.mark.parametrize(
     "raised, expected",
     [
-        (OBSSDKTimeoutError("no answer"), ObsConnectionError),
+        (OBSSDKTimeoutError("no answer"), ObsUnreachableError),
         (OBSSDKError("identify failed"), ObsAuthError),
-        (ConnectionRefusedError(61, "refused"), ObsConnectionError),
+        (ConnectionRefusedError(61, "refused"), ObsUnreachableError),
         (ValueError("garbage host"), ObsConnectionError),
     ],
 )

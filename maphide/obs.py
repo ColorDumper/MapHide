@@ -159,13 +159,16 @@ def disconnect_obs(client):
         pass
 
 
-def set_overlay_enabled(client, scene_items, current_scene_name, enabled):
-    # The overlay covers one thing - whether the map is open - so it belongs in the
-    # same state in every scene that carries the source. Keeping them all in step
-    # means an OBS scene transition needs no work from MapHide and cannot catch the
-    # incoming scene uncovered. Current scene first, since it is the one on screen.
+def set_overlay_enabled(client, scene_items, current_scene_name, enabled, all_scenes=True):
+    # The overlay covers one thing - whether the map is open - so by default it goes
+    # into every scene that carries the source: OBS's actual per-scene state is
+    # otherwise unknown here (it restores sources enabled after a restart, and a
+    # dropped connection can strand one visible). all_scenes=False is for callers
+    # that track per-scene state themselves and already know exactly which one
+    # scene needs the write - see overlay.py's sync_scene.
     ordered = [name for name in (current_scene_name,) if name in scene_items]
-    ordered += [name for name in scene_items if name != current_scene_name]
+    if all_scenes:
+        ordered += [name for name in scene_items if name != current_scene_name]
     for scene_name in ordered:
         scene_item_id = scene_items[scene_name]
         if scene_item_id is not None:

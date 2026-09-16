@@ -7,7 +7,7 @@ import time
 from dataclasses import replace
 from datetime import datetime, timedelta
 
-from .hotkeys import is_hotkey_down, poll_hotkey
+from .hotkeys import poll_hotkey
 from .logs import configure_logging, logger
 from .obs import (
     OBS_OVERLAY_MAY_REMAIN,
@@ -25,6 +25,37 @@ from .state import HIDE, SHOW, OverlayState, decide
 POLL_INTERVAL = 0.005
 SCENE_REFRESH_INTERVAL = 0.25
 RECONNECT_DELAY = 2.0
+
+
+def scene_is_stale(scene_items, scene_synced, scene_name, target_visible):
+    """Does this scene carry the source, and does it not yet match
+    `target_visible`? A scene that has never been written to at all counts
+    as stale regardless of what `target_visible` is - "unconfirmed" is not
+    the same as "matches by coincidence"."""
+    return (
+        scene_items.get(scene_name) is not None and scene_synced.get(scene_name) != target_visible
+    )
+
+
+def find_stale_scene(scene_items, scene_synced, exclude, target_visible):
+    """The first scene (other than `exclude`) still waiting to catch up to
+    `target_visible`, or None once everything else already matches."""
+    return next(
+        (
+            name
+            for name in scene_items
+            if name != exclude and scene_is_stale(scene_items, scene_synced, name, target_visible)
+        ),
+        None,
+    )
+
+
+def sync_scene(client, scene_items, scene_synced, scene_name, visible):
+    """Write `visible` to exactly one scene and record that it now matches -
+    the write and the bookkeeping always happen together, never one without
+    the other."""
+    set_overlay_enabled(client, scene_items, scene_name, visible, all_scenes=False)
+    scene_synced[scene_name] = visible
 
 
 def scene_status(cfg, scene_name):
@@ -94,6 +125,7 @@ class MapHideService:
         client = None
         state = OverlayState()
         scene_items = {}
+        scene_synced = {}
         overlay_available = False
         active_scene_name = None
         last_scene_refresh = datetime.min
@@ -109,6 +141,12 @@ class MapHideService:
                         client = connect_obs(cfg.host, cfg.port, cfg.password)
                         active_scene_name = None
                         last_scene_refresh = datetime.min
+                        # OBS's per-scene state is unverified again after any
+                        # (re)connect - it restores sources enabled after a
+                        # restart, and a dropped connection can strand one
+                        # visible - so nothing already-confirmed here can be
+                        # trusted going forward.
+                        scene_synced = {}
                         state = replace(
                             state,
                             hide_requested_at=None,
@@ -160,25 +198,23 @@ class MapHideService:
                                 )
                             else:
                                 self._emit("status", scene_status(cfg, active_scene_name))
-                            # OBS's actual state is unknown at this point: it restores
-                            # sources enabled after a restart, and a dropped connection can
-                            # strand one visible. Send our state rather than assume it
-                            # already matches. In hold mode the key is the authority; in
-                            # toggle mode the latched state is.
-                            desired_visible = (
-                                state.desired_visible
-                                if cfg.toggle_mode
-                                else is_hotkey_down(show_vk_codes)
-                            )
-                            set_overlay_enabled(
-                                client, scene_items, active_scene_name, desired_visible
-                            )
-                            state = replace(
-                                state,
-                                desired_visible=desired_visible,
-                                overlay_visible=desired_visible,
-                                hide_requested_at=None,
-                            )
+                            # Most switches need nothing here at all: the scene you were
+                            # on was kept in sync continuously by every toggle while it
+                            # was active, and any other scene the background catch-up
+                            # below reaches before you switch back to it. This is only
+                            # the (rare) fallback for one that hasn't caught up yet - a
+                            # scene visited for the first time, or one you returned to
+                            # faster than the trickle could reach it.
+                            if scene_is_stale(
+                                scene_items, scene_synced, active_scene_name, state.overlay_visible
+                            ):
+                                sync_scene(
+                                    client,
+                                    scene_items,
+                                    scene_synced,
+                                    active_scene_name,
+                                    state.overlay_visible,
+                                )
                         last_scene_refresh = now
 
                     show_down, show_pressed = poll_hotkey(show_vk_codes)
@@ -197,11 +233,22 @@ class MapHideService:
                         hide_key_pressed=hide_pressed,
                     )
                     if action == SHOW:
-                        set_overlay_enabled(client, scene_items, active_scene_name, True)
+                        sync_scene(client, scene_items, scene_synced, active_scene_name, True)
                         self._emit("overlay", "Overlay shown.")
                     elif action == HIDE:
-                        set_overlay_enabled(client, scene_items, active_scene_name, False)
+                        sync_scene(client, scene_items, scene_synced, active_scene_name, False)
                         self._emit("overlay", "Overlay hidden.")
+
+                    # One other scene, at most, catches up per poll - the active scene
+                    # already got its own write above, so this never costs more than a
+                    # single extra request, and only while something is actually behind.
+                    stale_scene = find_stale_scene(
+                        scene_items, scene_synced, active_scene_name, state.overlay_visible
+                    )
+                    if stale_scene is not None:
+                        sync_scene(
+                            client, scene_items, scene_synced, stale_scene, state.overlay_visible
+                        )
 
                     time.sleep(POLL_INTERVAL)
                 except ObsConnectionError as exc:
@@ -213,6 +260,7 @@ class MapHideService:
                     # OBS was last told, and the scene resolution above uses them to put
                     # things right on reconnect.
                     active_scene_name = None
+                    scene_synced = {}
                     state = replace(
                         state,
                         hide_requested_at=None,

@@ -30,11 +30,26 @@ class OverlayState:
     hide_key_was_down: bool = False
 
 
-def decide(cfg, state, show_key_down, hide_key_down, same_key, overlay_available, now):
+def decide(
+    cfg,
+    state,
+    show_key_down,
+    hide_key_down,
+    same_key,
+    overlay_available,
+    now,
+    show_key_pressed=False,
+    hide_key_pressed=False,
+):
     """Return the state after this poll, and SHOW, HIDE or None to act on.
 
     `same_key` says the show and hide keybinds resolve to the same keys, which
     makes the show key alternate rather than only show.
+
+    `show_key_pressed`/`hide_key_pressed` report a press since the last poll
+    even if the key is already back up (see hotkeys.poll_hotkey). They only
+    add edges the plain down-state comparison below would otherwise catch, so
+    a caller that never passes them keeps today's behaviour exactly.
     """
     desired_visible = state.desired_visible
     previous_desired = desired_visible
@@ -42,8 +57,8 @@ def decide(cfg, state, show_key_down, hide_key_down, same_key, overlay_available
     hide_key_was_down = state.hide_key_was_down
 
     if cfg.toggle_mode:
-        show_pressed = show_key_down and not show_key_was_down
-        hide_pressed = hide_key_down and not hide_key_was_down
+        show_pressed = show_key_pressed or (show_key_down and not show_key_was_down)
+        hide_pressed = hide_key_pressed or (hide_key_down and not hide_key_was_down)
         if overlay_available:
             if same_key:
                 if show_pressed:

@@ -10,9 +10,12 @@ HOTKEY_OPTIONS = [
 HOTKEY_TO_VK = dict(HOTKEY_OPTIONS)
 SHOW_KEY_LABELS = tuple(chr(code) for code in range(ord("A"), ord("Z") + 1))
 STANDALONE_HIDE_KEY_LABELS = ("ESC", "SHIFT")
-# Windows reports the key's current state in the high bit; the low bit is a
-# was-pressed-since-last-call flag MapHide does not use.
+# Windows reports the key's current state in the high bit. The low bit is a
+# was-pressed-since-last-call flag: it still reads true even if the key is
+# back up by the time we check, which is what lets poll_hotkey below notice
+# a press that happened while the worker was blocked on an OBS call.
 KEY_DOWN_MASK = 0x8000
+KEY_PRESSED_SINCE_MASK = 0x0001
 MODIFIER_KEYSYMS = {
     "SHIFT_L": "SHIFT",
     "SHIFT_R": "SHIFT",
@@ -75,3 +78,38 @@ def is_key_down(vk_code):
 
 def is_hotkey_down(vk_codes):
     return bool(vk_codes) and all(is_key_down(code) for code in vk_codes)
+
+
+def read_key_state(vk_code):
+    # One call, since GetAsyncKeyState clears its own was-pressed-since-last-call
+    # bit each time it is asked - reading the two bits separately would clear the
+    # first one before the second call could see it.
+    state = ctypes.windll.user32.GetAsyncKeyState(vk_code)
+    is_down = (state & KEY_DOWN_MASK) != 0
+    pressed_since_last_check = (state & KEY_PRESSED_SINCE_MASK) != 0
+    return is_down, pressed_since_last_check
+
+
+def poll_hotkey(vk_codes):
+    """Current down state, plus whether a press happened since the last poll.
+
+    The second value is exact for a single-key hotkey: it is still true even
+    if that key is back up by the time we check, which is what a hotkey
+    tapped and released while the worker was blocked on an OBS call needs. For
+    a multi-key combo it is an approximation - true once every key has been
+    down since the last poll and all are currently down - since Windows only
+    tracks the since-last-call flag per key, not per combo.
+    """
+    if not vk_codes:
+        return False, False
+    if len(vk_codes) == 1:
+        # Report the raw bits as-is: for one key, "pressed since last check" is
+        # exact even after the key has already gone back up.
+        return read_key_state(vk_codes[0])
+    is_down = True
+    any_pressed_since = False
+    for code in vk_codes:
+        key_down, key_pressed_since = read_key_state(code)
+        is_down = is_down and key_down
+        any_pressed_since = any_pressed_since or key_pressed_since
+    return is_down, is_down and any_pressed_since

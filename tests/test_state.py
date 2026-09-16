@@ -246,6 +246,37 @@ def test_toggle_ignores_presses_while_the_source_is_missing():
     assert actions == [(300, SHOW)]
 
 
+# --- a press the level check alone would miss --------------------------------
+
+
+def test_toggle_same_key_registers_a_press_already_released_by_this_poll():
+    # Simulates a tap that landed entirely inside a blocked OBS call: by the
+    # time this poll runs, show_key_down is already back to False, so only
+    # show_key_pressed (from hotkeys.poll_hotkey) carries the edge through.
+    cfg = toggle_config(hotkey="M", hide_hotkey="M")
+    state, action = decide(
+        cfg, OverlayState(), False, False, True, True, at(0), show_key_pressed=True
+    )
+    assert action == SHOW
+    assert state.desired_visible is True
+
+
+def test_toggle_separate_keys_hide_registers_a_press_already_released_by_this_poll():
+    cfg = toggle_config(hotkey="M", hide_hotkey="ESC", hide_delay_ms=0)
+    state, action = decide(
+        cfg,
+        OverlayState(desired_visible=True, overlay_visible=True),
+        False,
+        False,
+        False,
+        True,
+        at(0),
+        hide_key_pressed=True,
+    )
+    assert action == HIDE
+    assert state.desired_visible is False
+
+
 # --- state carried across a dropped connection -------------------------------
 
 

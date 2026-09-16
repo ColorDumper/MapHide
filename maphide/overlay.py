@@ -7,7 +7,7 @@ import time
 from dataclasses import replace
 from datetime import datetime, timedelta
 
-from .hotkeys import is_hotkey_down
+from .hotkeys import is_hotkey_down, poll_hotkey
 from .logs import configure_logging, logger
 from .obs import (
     OBS_OVERLAY_MAY_REMAIN,
@@ -172,14 +172,20 @@ class MapHideService:
                             )
                         last_scene_refresh = now
 
+                    show_down, show_pressed = poll_hotkey(show_vk_codes)
+                    hide_down, hide_pressed = (
+                        poll_hotkey(hide_vk_codes) if cfg.toggle_mode else (False, False)
+                    )
                     state, action = decide(
                         cfg,
                         state,
-                        is_hotkey_down(show_vk_codes),
-                        is_hotkey_down(hide_vk_codes) if cfg.toggle_mode else False,
+                        show_down,
+                        hide_down,
                         same_key,
                         overlay_available,
                         now,
+                        show_key_pressed=show_pressed,
+                        hide_key_pressed=hide_pressed,
                     )
                     if action == SHOW:
                         set_overlay_enabled(client, scene_items, active_scene_name, True)

@@ -181,7 +181,10 @@ class MapHideApp:
             weight="bold",
         )
         style.configure(
-            "Warning.TLabel", background=COLOR_BG, foreground=COLOR_WARNING, font=self._warning_font
+            "Warning.TLabel",
+            background=COLOR_BG,
+            foreground=COLOR_WARNING,
+            font=self._warning_font,
         )
         style.configure(
             "TLabelFrame",

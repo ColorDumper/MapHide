@@ -135,7 +135,9 @@ class MapHideService:
                         if give_up:
                             final_status_message = error_message
                             break
-                        time.sleep(RECONNECT_DELAY)
+                        # A plain sleep would keep Stop waiting out the full delay even
+                        # though nothing here needs to finish first.
+                        self._stop_event.wait(RECONNECT_DELAY)
                         continue
 
                 now = datetime.now()
@@ -217,7 +219,7 @@ class MapHideService:
                         show_key_was_down=False,
                         hide_key_was_down=False,
                     )
-                    time.sleep(RECONNECT_DELAY)
+                    self._stop_event.wait(RECONNECT_DELAY)
         except Exception as exc:
             # Anything reaching here is a fault in MapHide rather than in the link to
             # OBS, which the clauses above already handle. Report it instead of letting

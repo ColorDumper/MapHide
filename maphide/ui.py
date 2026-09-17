@@ -43,7 +43,7 @@ from .hotkeys import (
     is_valid_show_hotkey,
     normalize_event_key,
 )
-from .overlay import MapHideService
+from .overlay import MapHideService, human_ts
 from .paths import (
     APP_NAME,
     APP_USER_MODEL_ID,
@@ -57,7 +57,8 @@ from .paths import (
 
 KEY_BUTTON_WIDTH = 16
 STATUS_AREA_WIDTH = 300
-STATUS_AREA_HEIGHT = 72
+STATUS_VALUE_HEIGHT = 40
+HISTORY_LINE_COUNT = 10
 HELP_AREA_WIDTH = 340
 HELP_AREA_HEIGHT = 44
 EVENT_DRAIN_INTERVAL_MS = 100
@@ -127,6 +128,7 @@ class MapHideApp:
         self.auto_reconnect_var = tk.BooleanVar(value=True)
         self.log_enabled_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle")
+        self.history_lines = []
         self.help_text_var = tk.StringVar(
             value="Hold G to show the overlay. Release G to hide it."
         )
@@ -142,7 +144,7 @@ class MapHideApp:
         self._build_ui()
         self._apply_window_icon()
         self._apply_dark_titlebar()
-        self._apply_footer_watermark()
+        self._apply_watermark()
         self._load_initial_config()
         self._measure_window_sizes()
         self._apply_window_size(self.collapsed_width)
@@ -186,6 +188,19 @@ class MapHideApp:
             background=COLOR_BG,
             foreground=COLOR_WARNING,
             font=self._warning_font,
+        )
+        # Bold, same size: the Status headline should stand out from its label
+        # without the row growing any taller than plain text needs.
+        self._status_value_font = tkfont.Font(
+            family=default_font.cget("family"),
+            size=default_font.cget("size"),
+            weight="bold",
+        )
+        style.configure(
+            "StatusValue.TLabel",
+            background=COLOR_BG,
+            foreground=COLOR_TEXT,
+            font=self._status_value_font,
         )
         style.configure(
             "TLabelFrame",
@@ -263,7 +278,10 @@ class MapHideApp:
 
         header_row = ttk.Frame(left_panel)
         header_row.grid(row=0, column=0, sticky="ew")
-        header_row.columnconfigure(0, weight=1)
+        # Column 1 (the watermark) takes all the slack, so it centers in
+        # whatever gap is left between the title and the Settings button
+        # instead of needing a size of its own reserved.
+        header_row.columnconfigure(1, weight=1)
 
         title_row = ttk.Frame(header_row)
         title_row.grid(row=0, column=0, sticky="w")
@@ -278,25 +296,34 @@ class MapHideApp:
             padx=(6, 0),
             pady=(0, 1),
         )
+
+        self.watermark_label = ttk.Label(header_row, style="Version.TLabel", anchor="center")
+        self.watermark_label.grid(row=0, column=1, sticky="ew")
+
         self.settings_button = ttk.Button(
             header_row, text=SETTINGS_SHOW_LABEL, command=self.toggle_settings_panel
         )
-        self.settings_button.grid(row=0, column=1, sticky="e")
+        self.settings_button.grid(row=0, column=2, sticky="e")
 
         controls_frame = ttk.LabelFrame(left_panel, text="Controls", padding=12)
         controls_frame.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         controls_frame.columnconfigure(1, weight=1)
 
+        # Split 50/50 across the full row - the same width the log and help
+        # boxes below span - so the button row lines up with them instead of
+        # sitting off to one side.
         button_row = ttk.Frame(controls_frame)
-        button_row.grid(row=0, column=0, columnspan=2, sticky="w")
+        button_row.grid(row=0, column=0, columnspan=2, sticky="ew")
+        button_row.columnconfigure(0, weight=1)
+        button_row.columnconfigure(1, weight=1)
 
         self.start_button = ttk.Button(button_row, text="Start", command=self.start_service)
-        self.start_button.grid(row=0, column=0, padx=(0, 8))
+        self.start_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
 
         self.stop_button = ttk.Button(
             button_row, text="Stop", command=self.stop_service, state="disabled"
         )
-        self.stop_button.grid(row=0, column=1, padx=(0, 8))
+        self.stop_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
         ttk.Checkbutton(
             controls_frame,
@@ -312,30 +339,53 @@ class MapHideApp:
             command=self.save_form_config,
         ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(0, 2))
 
-        ttk.Label(controls_frame, text="Status").grid(
-            row=3, column=0, sticky="nw", pady=(8, 2), padx=(0, 10)
-        )
-        status_area = tk.Frame(
-            controls_frame,
+        status_row = ttk.Frame(controls_frame)
+        status_row.grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 4))
+        ttk.Label(status_row, text="Status:").pack(side="left", anchor="n")
+
+        # Fixed height so a long status message wraps inside its own box
+        # instead of growing this row - the window is a fixed size (see
+        # _apply_window_size) and can't grow to make room, so an unbounded
+        # label would squeeze the history log and help text below it instead.
+        status_value_area = tk.Frame(
+            status_row,
             width=STATUS_AREA_WIDTH,
-            height=STATUS_AREA_HEIGHT,
+            height=STATUS_VALUE_HEIGHT,
             bg=COLOR_BG,
             highlightthickness=0,
         )
-        status_area.grid(
-            row=3,
-            column=1,
-            sticky="nw",
-            pady=(8, 6),
-        )
-        status_area.grid_propagate(False)
+        status_value_area.pack(side="left", padx=(4, 0))
+        status_value_area.pack_propagate(False)
         self.status_label = ttk.Label(
-            status_area,
+            status_value_area,
             textvariable=self.status_var,
+            style="StatusValue.TLabel",
             justify="left",
-            wraplength=STATUS_AREA_WIDTH - 8,
+            wraplength=STATUS_AREA_WIDTH,
         )
-        self.status_label.place(x=0, y=0, width=STATUS_AREA_WIDTH, height=STATUS_AREA_HEIGHT)
+        self.status_label.pack(side="left", anchor="n")
+
+        self.history_text = tk.Text(
+            controls_frame,
+            height=HISTORY_LINE_COUNT,
+            width=1,
+            wrap="word",
+            bg=COLOR_BG,
+            fg=COLOR_MUTED,
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+            highlightcolor=COLOR_BORDER,
+            borderwidth=0,
+            padx=4,
+            pady=2,
+            font=("Segoe UI", 9),
+            state="disabled",
+        )
+        # width=1: a Text widget's requested width is normally in characters
+        # (80 by default) and would out-size every other control in this
+        # frame. sticky="ew" then stretches it to match the row instead,
+        # same as the rest of controls_frame.
+        self.history_text.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(2, 6))
 
         help_area = tk.Frame(
             controls_frame,
@@ -344,14 +394,15 @@ class MapHideApp:
             bg=COLOR_PANEL,
             highlightthickness=0,
         )
-        help_area.grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        help_area.grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 0))
         help_area.grid_propagate(False)
         self.help_label = ttk.Label(
             help_area,
             textvariable=self.help_text_var,
             style="Muted.TLabel",
             wraplength=HELP_AREA_WIDTH - 8,
-            justify="left",
+            justify="center",
+            anchor="center",
         )
         self.help_label.place(x=0, y=0, width=HELP_AREA_WIDTH, height=HELP_AREA_HEIGHT)
 
@@ -585,16 +636,16 @@ class MapHideApp:
         except tk.TclError:
             self.root.deiconify()
 
-    def _apply_footer_watermark(self):
-        if not hasattr(self, "footer_brand"):
+    def _apply_watermark(self):
+        if not hasattr(self, "watermark_label"):
             return
         if Image is None or ImageTk is None or not WATERMARK_PNG_PATH.exists():
             return
         try:
             # Drawn at the size it is shown at, so nothing is resampled here.
             watermark = Image.open(WATERMARK_PNG_PATH).convert("RGBA")
-            self.footer_brand_image = ImageTk.PhotoImage(watermark)
-            self.footer_brand.configure(image=self.footer_brand_image, text="")
+            self.watermark_image = ImageTk.PhotoImage(watermark)
+            self.watermark_label.configure(image=self.watermark_image)
         except (OSError, tk.TclError):
             pass
 
@@ -734,11 +785,12 @@ class MapHideApp:
     def _apply_config(self, cfg, done_message):
         self.running_config = cfg
         self._update_help_text()
+        # The log, not the live status line: a save/reset confirmation isn't
+        # part of the OBS connection's own story, and flashing it there only
+        # to have it revert a moment later is easy to miss entirely.
+        self._add_history_line(human_ts(), done_message)
         if self.service.is_running:
             self._restart_service_with_config(cfg)
-            self.status_var.set(f"{done_message} Restarting MapHide...")
-        else:
-            self.status_var.set(done_message)
 
     def start_service(self):
         try:
@@ -805,21 +857,30 @@ class MapHideApp:
             except queue.Empty:
                 break
 
-            kind = event["kind"]
-            message = event["message"]
-            timestamp = event["timestamp"]
-
-            if kind == "status":
-                self.status_var.set(message)
-            elif kind == "overlay":
-                self.status_var.set(f"{timestamp}  {message}")
-            elif kind == "error":
-                self.status_var.set(message)
-            elif kind == "stopped":
-                self.status_var.set(message)
+            # A save-triggered restart stops the old worker before starting a new
+            # one; that stop always emits a live "stopped" event, but it is not a
+            # real stop from the user's point of view and would otherwise flash
+            # over the live status for the moment before the new connection
+            # comes up. The history line is still worth keeping either way.
+            if event["live"] and not self.restart_pending:
+                self.status_var.set(event["message"])
+            if event["history"]:
+                self._add_history_line(event["timestamp"], event["message"])
 
         self._sync_service_buttons()
         self.root.after(EVENT_DRAIN_INTERVAL_MS, self._drain_events)
+
+    def _add_history_line(self, timestamp, message):
+        self.history_lines.append(f"{timestamp}  {message}")
+        self.history_lines = self.history_lines[-HISTORY_LINE_COUNT:]
+        # Rewritten from scratch each time rather than appended to: the cap
+        # above means an older line can drop off the top, which a Text
+        # widget has no equivalent of "delete the first listbox row" for.
+        self.history_text.configure(state="normal")
+        self.history_text.delete("1.0", tk.END)
+        self.history_text.insert(tk.END, "\n".join(self.history_lines))
+        self.history_text.configure(state="disabled")
+        self.history_text.see(tk.END)
 
     def _show_error(self, title, message):
         if messagebox is not None:

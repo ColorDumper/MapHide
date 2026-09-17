@@ -13,7 +13,7 @@ Two scenarios get a dedicated regression test:
 from datetime import datetime, timedelta
 
 from maphide.config import AppConfig
-from maphide.overlay import find_stale_scene, scene_is_stale, sync_scene
+from maphide.overlay import find_stale_scene, scene_is_stale, scene_status, sync_scene
 from maphide.state import HIDE, SHOW, OverlayState, decide
 
 START = datetime(2026, 1, 1, 12, 0, 0)
@@ -116,6 +116,17 @@ def test_sync_scene_writes_and_records_exactly_one_scene():
 
     assert client.calls == [_scene_call("Gameplay", 1, True)]
     assert scene_synced == {"Gameplay": True}
+
+
+# --- scene_status ----------------------------------------------------------------
+
+
+def test_scene_status_reports_a_switch_by_default():
+    assert scene_status("Gameplay") == "Switched to scene: Gameplay."
+
+
+def test_scene_status_reports_first_detection_separately():
+    assert scene_status("Gameplay", is_first_detection=True) == "New scene detected: Gameplay."
 
 
 # --- regression: a blip during a scene switch must not leak into the write ---

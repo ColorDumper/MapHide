@@ -30,6 +30,7 @@ class AppConfig:
     password: str
     scene_item_name: str
     auto_connect: bool = False
+    auto_reconnect: bool = True
     hotkey: str = "G"
     toggle_mode: bool = False
     hide_hotkey: str = "H"
@@ -50,6 +51,7 @@ class AppConfig:
             password=str(data.get("password", "")),
             scene_item_name=str(data["scene_item_name"]).strip(),
             auto_connect=bool(data.get("auto_connect", False)),
+            auto_reconnect=bool(data.get("auto_reconnect", True)),
             hotkey=hotkey if is_valid_show_hotkey(hotkey) else "G",
             toggle_mode=bool(data.get("toggle_mode", False)),
             hide_hotkey=hide_hotkey if is_valid_hide_hotkey(hide_hotkey) else "H",
@@ -68,6 +70,7 @@ class AppConfig:
             "password": self.password,
             "scene_item_name": self.scene_item_name,
             "auto_connect": self.auto_connect,
+            "auto_reconnect": self.auto_reconnect,
             "hotkey": self.hotkey,
             "toggle_mode": self.toggle_mode,
             "hide_hotkey": self.hide_hotkey,
@@ -89,6 +92,7 @@ def default_config():
         password="",
         scene_item_name="",
         auto_connect=False,
+        auto_reconnect=True,
         hotkey="G",
         toggle_mode=False,
         hide_hotkey="H",

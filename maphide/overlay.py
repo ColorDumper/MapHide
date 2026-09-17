@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from .hotkeys import poll_hotkey
 from .logs import configure_logging, logger
 from .obs import (
+    CONNECT_TIMEOUT,
     OBS_OVERLAY_MAY_REMAIN,
     ObsAuthError,
     ObsConnectionError,
@@ -24,7 +25,11 @@ from .state import HIDE, SHOW, OverlayState, decide
 
 POLL_INTERVAL = 0.005
 SCENE_REFRESH_INTERVAL = 0.25
-RECONNECT_DELAY = 2.0
+# Matches the connect timeout, not chosen independently: trying and waiting
+# take the same amount of time, so the retry cadence reads as one predictable
+# rhythm instead of two arbitrary, differently-sized numbers.
+RECONNECT_DELAY = CONNECT_TIMEOUT
+RECONNECT_TICK = 1.0
 
 
 def scene_is_stale(scene_items, scene_synced, scene_name, target_visible):
@@ -107,15 +112,42 @@ class MapHideService:
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
-    def _emit(self, kind, message):
+    def _emit(self, kind, message, history=True):
+        # The debug log always gets everything, history flag or not - that is
+        # what it is for. `history` only decides whether the in-app history
+        # list also keeps this one, separately from the always-live status.
         logger.log(logging.ERROR if kind == "error" else logging.INFO, "%s: %s", kind, message)
         self._events.put(
             {
                 "kind": kind,
                 "message": message,
                 "timestamp": human_ts(),
+                "history": history,
             }
         )
+
+    def _wait_with_countdown(self, total_seconds):
+        """Wait up to total_seconds, interruptible, with a live-only status
+        tick each second - so a long retry reads as "still trying" instead of
+        looking stuck on whatever it last said.
+
+        The first tick is silent: whatever message led here (a failure) gets
+        a full tick of real screen time before "Reconnecting..." starts
+        ticking over it, so the two updates can't land in the same redraw
+        and make the failure message vanish before it was ever seen.
+        """
+        first_step = min(RECONNECT_TICK, total_seconds)
+        if self._stop_event.wait(first_step):
+            return
+        remaining = total_seconds - first_step
+        elapsed = 0.0
+        self._emit("status", "Reconnecting...", history=False)
+        while elapsed < remaining:
+            step = min(RECONNECT_TICK, remaining - elapsed)
+            if self._stop_event.wait(step):
+                return
+            elapsed += step
+            self._emit("status", f"Reconnecting... {elapsed:g}s", history=False)
 
     def _run(self, cfg):
         configure_logging(cfg.log_enabled)
@@ -129,7 +161,10 @@ class MapHideService:
         overlay_available = False
         active_scene_name = None
         last_scene_refresh = datetime.min
-        announced_connection_failure = False
+        # Tracks whether the current run of failures already has a history
+        # entry, separately from the live status (which shows every attempt).
+        # Resets on a successful connect, so the next streak gets its own.
+        failure_in_history = False
         final_status_message = "MapHide stopped."
         had_successful_connection = False
 
@@ -137,7 +172,14 @@ class MapHideService:
             while not self._stop_event.is_set():
                 if client is None:
                     try:
-                        self._emit("status", "Connecting to OBS...")
+                        # Announced once per streak, not on every retry: seeing
+                        # "Connecting to OBS..." reappear after a failure reads as a
+                        # fresh attempt about to succeed, when it is really the same
+                        # loop continuing. failure_in_history already tracks exactly
+                        # that - false for a genuinely new attempt, true partway
+                        # through an already-acknowledged run of failures.
+                        if not failure_in_history:
+                            self._emit("status", "Connecting to OBS...")
                         client = connect_obs(cfg.host, cfg.port, cfg.password)
                         active_scene_name = None
                         last_scene_refresh = datetime.min
@@ -153,29 +195,35 @@ class MapHideService:
                             show_key_was_down=False,
                             hide_key_was_down=False,
                         )
-                        announced_connection_failure = False
+                        failure_in_history = False
                         had_successful_connection = True
                         self._emit("status", "Connected to OBS.")
                     except ObsConnectionError as exc:
                         error_message = str(exc)
-                        if not announced_connection_failure:
-                            self._emit("error", error_message)
-                            announced_connection_failure = True
+                        # Shown live on every single attempt - a retry that is still
+                        # failing should keep saying so, not go quiet after the first
+                        # time. Only the history entry is limited to one per streak.
+                        self._emit("error", error_message, history=not failure_in_history)
+                        failure_in_history = True
                         # A wrong password will not start working on its own. An
                         # unreachable OBS often just hasn't been opened yet, including
                         # on the very first attempt, so that keeps retrying. Any other
                         # failure on a first attempt that never succeeded usually means
                         # the settings are wrong, so that one still waits for the user.
-                        give_up = isinstance(exc, ObsAuthError) or (
-                            not had_successful_connection
-                            and not isinstance(exc, ObsUnreachableError)
+                        # auto_reconnect off overrides all of that: any failure just
+                        # stops the service, handing full manual control back to the user.
+                        give_up = (
+                            not cfg.auto_reconnect
+                            or isinstance(exc, ObsAuthError)
+                            or (
+                                not had_successful_connection
+                                and not isinstance(exc, ObsUnreachableError)
+                            )
                         )
                         if give_up:
                             final_status_message = error_message
                             break
-                        # A plain sleep would keep Stop waiting out the full delay even
-                        # though nothing here needs to finish first.
-                        self._stop_event.wait(RECONNECT_DELAY)
+                        self._wait_with_countdown(RECONNECT_DELAY)
                         continue
 
                 now = datetime.now()
@@ -252,7 +300,13 @@ class MapHideService:
 
                     time.sleep(POLL_INTERVAL)
                 except ObsConnectionError as exc:
-                    self._emit("error", str(exc))
+                    error_message = str(exc)
+                    # Always its own history entry: failure_in_history is guaranteed
+                    # False here, since reaching this handler at all means a prior
+                    # connect succeeded and reset it - this is a fresh drop, not a
+                    # continuation of some already-recorded streak.
+                    self._emit("error", error_message)
+                    failure_in_history = True
                     disconnect_obs(client)
                     client = None
                     # desired_visible and overlay_visible deliberately survive the drop.
@@ -267,7 +321,10 @@ class MapHideService:
                         show_key_was_down=False,
                         hide_key_was_down=False,
                     )
-                    self._stop_event.wait(RECONNECT_DELAY)
+                    if not cfg.auto_reconnect:
+                        final_status_message = error_message
+                        break
+                    self._wait_with_countdown(RECONNECT_DELAY)
         except Exception as exc:
             # Anything reaching here is a fault in MapHide rather than in the link to
             # OBS, which the clauses above already handle. Report it instead of letting

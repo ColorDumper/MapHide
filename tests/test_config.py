@@ -59,6 +59,10 @@ def test_from_dict_requires_the_core_keys():
         AppConfig.from_dict({"host": "x", "port": 4455, "password": ""})
 
 
+def test_from_dict_defaults_auto_reconnect_on_for_configs_saved_before_it_existed():
+    assert AppConfig.from_dict(BASE).auto_reconnect is True
+
+
 def test_save_then_load_round_trips(tmp_path):
     path = tmp_path / "config.json"
     cfg = AppConfig.from_dict(

@@ -124,6 +124,7 @@ class MapHideApp:
         self.show_port_var = tk.BooleanVar(value=False)
         self.show_password_var = tk.BooleanVar(value=False)
         self.auto_connect_var = tk.BooleanVar(value=False)
+        self.auto_reconnect_var = tk.BooleanVar(value=True)
         self.log_enabled_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle")
         self.help_text_var = tk.StringVar(
@@ -299,13 +300,20 @@ class MapHideApp:
 
         ttk.Checkbutton(
             controls_frame,
-            text="Auto connect on startup",
+            text="Connect on startup",
             variable=self.auto_connect_var,
             command=self.save_form_config,
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 2))
 
+        ttk.Checkbutton(
+            controls_frame,
+            text="Auto reconnect",
+            variable=self.auto_reconnect_var,
+            command=self.save_form_config,
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(0, 2))
+
         ttk.Label(controls_frame, text="Status").grid(
-            row=2, column=0, sticky="nw", pady=(8, 2), padx=(0, 10)
+            row=3, column=0, sticky="nw", pady=(8, 2), padx=(0, 10)
         )
         status_area = tk.Frame(
             controls_frame,
@@ -315,7 +323,7 @@ class MapHideApp:
             highlightthickness=0,
         )
         status_area.grid(
-            row=2,
+            row=3,
             column=1,
             sticky="nw",
             pady=(8, 6),
@@ -336,7 +344,7 @@ class MapHideApp:
             bg=COLOR_PANEL,
             highlightthickness=0,
         )
-        help_area.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        help_area.grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 0))
         help_area.grid_propagate(False)
         self.help_label = ttk.Label(
             help_area,
@@ -645,6 +653,7 @@ class MapHideApp:
         self.password_var.set(cfg.password)
         self.item_var.set(cfg.scene_item_name)
         self.auto_connect_var.set(cfg.auto_connect)
+        self.auto_reconnect_var.set(cfg.auto_reconnect)
         self.log_enabled_var.set(cfg.log_enabled)
         self.hotkey_var.set(cfg.hotkey)
         self.toggle_mode_var.set(cfg.toggle_mode)
@@ -689,6 +698,7 @@ class MapHideApp:
             password=password,
             scene_item_name=scene_item_name,
             auto_connect=self.auto_connect_var.get(),
+            auto_reconnect=self.auto_reconnect_var.get(),
             hotkey=hotkey,
             toggle_mode=toggle_mode,
             hide_hotkey=hide_hotkey,

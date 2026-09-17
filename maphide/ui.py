@@ -107,7 +107,8 @@ class MapHideApp:
         self.reset_confirm_pending = False
         self.collapsed_width = 0
         self.expanded_width = 0
-        self.window_height = 0
+        self.collapsed_height = 0
+        self.expanded_height = 0
 
         self.host_var = tk.StringVar()
         self.port_var = tk.StringVar()
@@ -147,7 +148,7 @@ class MapHideApp:
         self._apply_watermark()
         self._load_initial_config()
         self._measure_window_sizes()
-        self._apply_window_size(self.collapsed_width)
+        self._apply_window_size(self.collapsed_width, self.collapsed_height)
         self.root.bind_all("<Button-1>", self._handle_global_click, add="+")
         self.root.bind_all("<KeyPress>", self._handle_key_capture_press, add="+")
         self.root.bind_all("<KeyRelease>", self._handle_key_capture_release, add="+")
@@ -406,16 +407,6 @@ class MapHideApp:
         )
         self.help_label.place(x=0, y=0, width=HELP_AREA_WIDTH, height=HELP_AREA_HEIGHT)
 
-        self.footer_brand = ttk.Label(
-            left_panel, text="Color Dumper • 2026", style="Version.TLabel"
-        )
-        self.footer_brand.grid(
-            row=2,
-            column=0,
-            sticky="e",
-            pady=(10, 0),
-        )
-
         self.settings_panel = ttk.Frame(frame, padding=(14, 0, 0, 0))
         self.settings_panel.grid(row=0, column=1, sticky="n")
         self.settings_panel.grid_remove()
@@ -653,7 +644,7 @@ class MapHideApp:
         self.settings_panel.grid_remove()
         self.root.update_idletasks()
         self.collapsed_width = self.root.winfo_reqwidth()
-        self.window_height = self.root.winfo_reqheight()
+        self.collapsed_height = self.root.winfo_reqheight()
 
         original_toggle_mode = self.toggle_mode_var.get()
         original_hotkey = self.hotkey_var.get()
@@ -671,7 +662,7 @@ class MapHideApp:
         self.settings_panel.grid()
         self.root.update_idletasks()
         self.expanded_width = self.root.winfo_reqwidth()
-        self.window_height = max(self.window_height, self.root.winfo_reqheight())
+        self.expanded_height = self.root.winfo_reqheight()
 
         self.settings_panel.grid_remove()
 
@@ -1063,9 +1054,9 @@ class MapHideApp:
         if hasattr(self, "password_entry"):
             self.password_entry.configure(show="" if self.show_password_var.get() else "*")
 
-    def _apply_window_size(self, width):
+    def _apply_window_size(self, width, height):
         width = int(width)
-        height = int(self.window_height)
+        height = int(height)
         self.root.minsize(width, height)
         self.root.maxsize(width, height)
         self.root.geometry(f"{width}x{height}")
@@ -1082,7 +1073,7 @@ class MapHideApp:
         self.settings_panel.grid()
         self.settings_visible = True
         self.settings_button.configure(text=SETTINGS_HIDE_LABEL)
-        self._apply_window_size(self.expanded_width)
+        self._apply_window_size(self.expanded_width, self.expanded_height)
 
     def _hide_settings_panel(self):
         if not self.settings_visible:
@@ -1091,7 +1082,7 @@ class MapHideApp:
         self.settings_visible = False
         self.settings_button.configure(text=SETTINGS_SHOW_LABEL)
         self.settings_panel.grid_remove()
-        self._apply_window_size(self.collapsed_width)
+        self._apply_window_size(self.collapsed_width, self.collapsed_height)
 
     def _setup_tray(self):
         if pystray is None or Image is None or ImageDraw is None:

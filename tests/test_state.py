@@ -295,3 +295,26 @@ def test_intent_survives_a_reconnect_reset():
     )
     assert reconnected.desired_visible is True
     assert reconnected.overlay_visible is True
+
+
+def test_a_hide_already_pending_at_reconnect_still_lands():
+    # Release the key so a hide is armed but not yet fired, then apply the
+    # same reset overlay.py runs on every (re)connect. The key never comes
+    # back down, so nothing else will ever re-arm the hide - if the reset
+    # drops it, it is gone for good and the overlay is stuck showing.
+    cfg = hold_config(hide_delay_ms=120)
+    state, actions = drive(cfg, [(0, True, False), (100, False, False)])
+    assert actions == [(0, SHOW)]
+    assert state.overlay_visible is True
+    assert state.hide_requested_at is not None  # still counting down at reconnect
+
+    from dataclasses import replace
+
+    # hide_requested_at survives the reset (see overlay.py) - only the
+    # key-edge tracking, which is meaningless after a polling gap, is reset.
+    reconnected = replace(state, show_key_was_down=False, hide_key_was_down=False)
+
+    # Real time has already passed the hide delay by the time polling
+    # resumes - the hide should land on the very next poll, not be lost.
+    _, actions = drive(cfg, [(5000, False, False)], state=reconnected)
+    assert actions == [(5000, HIDE)]

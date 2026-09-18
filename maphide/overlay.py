@@ -184,9 +184,11 @@ class MapHideService:
                         # visible - so nothing already-confirmed here can be
                         # trusted going forward.
                         scene_synced = {}
+                        # hide_requested_at deliberately survives: a hide already
+                        # armed before the drop must still land once reconnected,
+                        # not evaporate because nothing changed key-wise since.
                         state = replace(
                             state,
-                            hide_requested_at=None,
                             show_key_was_down=False,
                             hide_key_was_down=False,
                         )
@@ -313,15 +315,15 @@ class MapHideService:
                     failure_in_history = True
                     disconnect_obs(client)
                     client = None
-                    # desired_visible and overlay_visible deliberately survive the drop.
-                    # They are the only record of what the overlay should be and of what
-                    # OBS was last told, and the scene resolution above uses them to put
-                    # things right on reconnect.
+                    # desired_visible, overlay_visible, and hide_requested_at deliberately
+                    # survive the drop. They are the only record of what the overlay should
+                    # be, of what OBS was last told, and of a hide already counting down -
+                    # the scene resolution above uses the first two to put things right on
+                    # reconnect, and dropping the third would strand an already-armed hide.
                     active_scene_name = None
                     scene_synced = {}
                     state = replace(
                         state,
-                        hide_requested_at=None,
                         show_key_was_down=False,
                         hide_key_was_down=False,
                     )

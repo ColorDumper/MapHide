@@ -19,6 +19,7 @@ from maphide.obs import ObsAuthError
 from maphide.overlay import (
     MapHideService,
     find_stale_scene,
+    recheck_missing_source,
     scene_is_stale,
     scene_status,
     seed_key_edge_tracking,
@@ -52,6 +53,21 @@ class RecordingClient:
 
     def send(self, req_type, payload, raw=True):
         self.calls.append((req_type, payload))
+        return {}
+
+
+class SceneItemLookupClient:
+    """Like RecordingClient, but GetSceneItemList returns a configured
+    response instead of {} - everything else is recorded the same way."""
+
+    def __init__(self, get_scene_item_list_response):
+        self.get_scene_item_list_response = get_scene_item_list_response
+        self.calls = []
+
+    def send(self, req_type, payload, raw=True):
+        self.calls.append((req_type, payload))
+        if req_type == "GetSceneItemList":
+            return self.get_scene_item_list_response
         return {}
 
 
@@ -223,6 +239,57 @@ def test_sync_scene_writes_and_records_exactly_one_scene():
     assert scene_synced == {"Gameplay": True}
 
 
+def test_sync_scene_does_not_mark_a_scene_synced_when_its_item_id_is_unknown():
+    # A scene whose source hasn't been detected there yet (scene_items maps
+    # it to None) has nothing to write to. Marking it "synced" anyway would
+    # make scene_is_stale wrongly report it as already correct once the
+    # source is later found there, permanently skipping the write it needs -
+    # found via manual testing of the recheck_missing_source feature above.
+    client = RecordingClient()
+    scene_items = {"SceneA": 1, "SceneB": None}
+    scene_synced = {}
+
+    sync_scene(client, scene_items, scene_synced, "SceneB", True)
+
+    assert client.calls == []
+    assert scene_synced == {}
+
+
+# --- recheck_missing_source ---------------------------------------------------
+
+
+def test_recheck_missing_source_does_nothing_once_already_known():
+    client = RecordingClient()
+    scene_items = {"Gameplay": 7}
+
+    found = recheck_missing_source(client, scene_items, "Gameplay", "Overlay")
+
+    assert found is False
+    assert client.calls == []  # never asks OBS - nothing to catch up on
+    assert scene_items == {"Gameplay": 7}
+
+
+def test_recheck_missing_source_still_not_found_changes_nothing():
+    client = SceneItemLookupClient({"sceneItems": []})
+    scene_items = {"Gameplay": None}
+
+    found = recheck_missing_source(client, scene_items, "Gameplay", "Overlay")
+
+    assert found is False
+    assert scene_items == {"Gameplay": None}
+
+
+def test_recheck_missing_source_finds_it_when_added():
+    client = SceneItemLookupClient({"sceneItems": [{"sourceName": "Overlay", "sceneItemId": 7}]})
+    scene_items = {"Gameplay": None}
+
+    found = recheck_missing_source(client, scene_items, "Gameplay", "Overlay")
+
+    assert found is True
+    assert scene_items == {"Gameplay": 7}
+    assert client.calls == [("GetSceneItemList", {"sceneName": "Gameplay"})]
+
+
 # --- scene_status ----------------------------------------------------------------
 
 
@@ -317,3 +384,70 @@ def test_background_catch_up_fixes_a_stale_scene_before_you_return_to_it():
         _scene_call("Just Chatting", 2, False),
         _scene_call("Gameplay", 1, False),
     ]
+
+
+# --- regression: adding the source to the active scene needs no switch -----
+
+
+def test_source_added_to_the_active_scene_is_picked_up_without_a_switch():
+    cfg = hold_config(hide_delay_ms=0)
+    scene_items = {"Gameplay": None}  # source isn't in the active scene yet
+    scene_synced = {}
+    client = SceneItemLookupClient({"sceneItems": [{"sourceName": "Overlay", "sceneItemId": 5}]})
+    state = OverlayState()
+
+    # G is pressed while the source is still missing - overlay_available is
+    # False, so nothing happens, exactly like overlay.py's own gating.
+    overlay_available = any(found is not None for found in scene_items.values())
+    assert overlay_available is False
+    state, action = decide(cfg, state, True, False, False, overlay_available, at(0))
+    assert action is None
+
+    # The source gets added to Gameplay in OBS. The periodic recheck (run
+    # independently of any scene switch, the way overlay.py's _run() runs
+    # it) picks it up.
+    found = recheck_missing_source(client, scene_items, "Gameplay", cfg.scene_item_name)
+    assert found is True
+    overlay_available = any(found is not None for found in scene_items.values())
+    assert overlay_available is True
+
+    # G is still held - the very next poll now actually shows it, no scene
+    # switch required.
+    state, action = decide(cfg, state, True, False, False, overlay_available, at(10))
+    assert action == SHOW
+    sync_scene(client, scene_items, scene_synced, "Gameplay", state.overlay_visible)
+
+    assert client.calls[-1] == _scene_call("Gameplay", 5, True)
+
+
+def test_a_press_while_the_active_scenes_item_id_is_unknown_does_not_block_the_later_correction():
+    # Regression for a real bug found via manual testing: overlay_available
+    # can already be True because the source exists in a *different* scene,
+    # so a press while on a scene whose item_id isn't known yet still fires
+    # a SHOW/HIDE action and calls sync_scene - which used to mark that
+    # scene "synced" anyway even though nothing was written, permanently
+    # blocking the real write once the source was later found there too.
+    cfg = hold_config(hide_delay_ms=0)
+    scene_items = {"SceneA": 1, "SceneB": None}
+    scene_synced = {}
+    client = SceneItemLookupClient({"sceneItems": [{"sourceName": "Overlay", "sceneItemId": 7}]})
+    state = OverlayState()
+    overlay_available = any(found is not None for found in scene_items.values())
+    assert overlay_available is True  # source already exists in SceneA
+
+    # Press G while on SceneB, whose item_id isn't known yet.
+    state, action = decide(cfg, state, True, False, False, overlay_available, at(0))
+    assert action == SHOW
+    sync_scene(client, scene_items, scene_synced, "SceneB", state.overlay_visible)
+    assert client.calls == []  # nothing to write to yet
+
+    # The source gets added to SceneB in OBS; the periodic recheck finds it.
+    found = recheck_missing_source(client, scene_items, "SceneB", cfg.scene_item_name)
+    assert found is True
+
+    # SceneB must still be considered stale - the earlier "sync" never
+    # actually wrote anything, so this is the first real chance to.
+    assert scene_is_stale(scene_items, scene_synced, "SceneB", state.overlay_visible) is True
+    sync_scene(client, scene_items, scene_synced, "SceneB", state.overlay_visible)
+
+    assert client.calls[-1] == _scene_call("SceneB", 7, True)

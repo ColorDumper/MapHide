@@ -18,6 +18,7 @@ from .obs import (
     connect_obs,
     disconnect_obs,
     find_overlay_scene_items,
+    find_scene_item_id,
     get_current_scene,
     set_overlay_enabled,
 )
@@ -25,6 +26,12 @@ from .state import HIDE, SHOW, OverlayState, decide
 
 POLL_INTERVAL = 0.005
 SCENE_REFRESH_INTERVAL = 0.25
+# How often to ask OBS about the active scene alone, while the source isn't
+# yet known to be there - catches a source added to the scene you're already
+# on, which a switch-triggered rescan would otherwise never notice. Cheap and
+# infrequent by design: a single-scene request, not the full rescan, and
+# nothing at all once the source is found.
+MISSING_SOURCE_RECHECK_INTERVAL = 3.0
 # Matches the connect timeout, not chosen independently: trying and waiting
 # take the same amount of time, so the retry cadence reads as one predictable
 # rhythm instead of two arbitrary, differently-sized numbers.
@@ -58,9 +65,36 @@ def find_stale_scene(scene_items, scene_synced, exclude, target_visible):
 def sync_scene(client, scene_items, scene_synced, scene_name, visible):
     """Write `visible` to exactly one scene and record that it now matches -
     the write and the bookkeeping always happen together, never one without
-    the other."""
+    the other. A scene whose item_id isn't known yet has nothing to write
+    to, so it is left unmarked rather than falsely recorded as already
+    correct - overlay_available can be True from the source existing in a
+    different scene, so this can be reached before this scene's own item_id
+    is known."""
+    if scene_items.get(scene_name) is None:
+        return
     set_overlay_enabled(client, scene_items, scene_name, visible, all_scenes=False)
     scene_synced[scene_name] = visible
+
+
+def sync_scene_if_stale(client, scene_items, scene_synced, scene_name, visible):
+    """sync_scene, but only if the scene doesn't already match - avoids a
+    redundant OBS write when nothing has actually changed."""
+    if scene_is_stale(scene_items, scene_synced, scene_name, visible):
+        sync_scene(client, scene_items, scene_synced, scene_name, visible)
+
+
+def recheck_missing_source(client, scene_items, scene_name, source_name):
+    """If `source_name` isn't yet known to be in `scene_name`, ask OBS again -
+    a single-scene request, not a full rescan, and nothing at all once it is
+    already known to be there. Updates `scene_items` in place and returns
+    whether it was just found."""
+    if scene_items.get(scene_name) is not None:
+        return False
+    found_item_id = find_scene_item_id(client, scene_name, source_name)
+    if found_item_id is None:
+        return False
+    scene_items[scene_name] = found_item_id
+    return True
 
 
 def scene_status(scene_name, is_first_detection=False):
@@ -171,6 +205,7 @@ class MapHideService:
         overlay_available = False
         active_scene_name = None
         last_scene_refresh = datetime.min
+        last_missing_source_check = datetime.min
         # Tracks whether the current run of failures already has a history
         # entry, separately from the live status (which shows every attempt).
         # Resets on a successful connect, so the next streak gets its own.
@@ -193,6 +228,7 @@ class MapHideService:
                         client = connect_obs(cfg.host, cfg.port, cfg.password)
                         active_scene_name = None
                         last_scene_refresh = datetime.min
+                        last_missing_source_check = datetime.min
                         # OBS's per-scene state is unverified again after any
                         # (re)connect - it restores sources enabled after a
                         # restart, and a dropped connection can strand one
@@ -264,17 +300,42 @@ class MapHideService:
                             # the (rare) fallback for one that hasn't caught up yet - a
                             # scene visited for the first time, or one you returned to
                             # faster than the trickle could reach it.
-                            if scene_is_stale(
-                                scene_items, scene_synced, active_scene_name, state.overlay_visible
-                            ):
-                                sync_scene(
-                                    client,
-                                    scene_items,
-                                    scene_synced,
-                                    active_scene_name,
-                                    state.overlay_visible,
-                                )
+                            sync_scene_if_stale(
+                                client,
+                                scene_items,
+                                scene_synced,
+                                active_scene_name,
+                                state.overlay_visible,
+                            )
                         last_scene_refresh = now
+
+                    # A separate, slower timer from the one above: catches a
+                    # source added to the scene you're already on, which a
+                    # switch-triggered rescan would otherwise never notice.
+                    # No-ops entirely once the source is known to be there.
+                    if active_scene_name is not None and (
+                        now - last_missing_source_check
+                    ) >= timedelta(seconds=MISSING_SOURCE_RECHECK_INTERVAL):
+                        last_missing_source_check = now
+                        if recheck_missing_source(
+                            client, scene_items, active_scene_name, cfg.scene_item_name
+                        ):
+                            overlay_available = any(
+                                found is not None for found in scene_items.values()
+                            )
+                            self._emit(
+                                "status",
+                                f"Source '{cfg.scene_item_name}' found in scene: "
+                                f"{active_scene_name}.",
+                                live=False,
+                            )
+                            sync_scene_if_stale(
+                                client,
+                                scene_items,
+                                scene_synced,
+                                active_scene_name,
+                                state.overlay_visible,
+                            )
 
                     show_down, show_pressed = poll_hotkey(show_vk_codes)
                     hide_down, hide_pressed = (

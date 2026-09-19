@@ -3,4 +3,13 @@
 line-length = 99
 
 [lint]
-select = ["E4", "E7", "E9", "F", "I"]
+# B (bugbear) and S (bandit-style security lint) added on top of ruff's
+# defaults (E4, E7, E9, F) plus import sorting (I) - the two categories most
+# likely to catch a real bug or a hardcoded secret before it lands.
+select = ["E4", "E7", "E9", "F", "I", "B", "S"]
+
+[lint.per-file-ignores]
+# S101 (assert) and S106 (hardcoded password in a function arg) are how
+# pytest tests work and what test fixtures legitimately look like - real
+# source code still gets both rules.
+"tests/*" = ["S101", "S106"]

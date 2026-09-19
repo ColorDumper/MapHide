@@ -24,6 +24,8 @@ CONNECT_TIMEOUT = 3
 # that stalls mid-session is caught in about a second rather than in 3s steps -
 # the worker then drops the link and reconnects.
 REQUEST_TIMEOUT = 1
+# A user-facing error message, not a credential - the rule can't tell the
+# difference from the name alone.
 OBS_BAD_PASSWORD = "Failed to connect to OBS. The OBS WebSocket password appears to be incorrect."  # noqa: S105
 OBS_UNREACHABLE = (
     "Failed to connect to OBS. Make sure OBS is open and the WebSocket server is available."

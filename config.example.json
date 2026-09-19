@@ -4,6 +4,7 @@
   "password": "",
   "scene_item_name": "",
   "auto_connect": false,
+  "auto_reconnect": true,
   "hotkey": "G",
   "toggle_mode": false,
   "hide_hotkey": "H",

@@ -161,6 +161,39 @@ def test_stopped_is_queued_before_running_flips_false(monkeypatch):
     assert running_when_stopped_was_emitted == [True]
 
 
+def test_a_failed_debug_log_start_is_reported_as_an_event(monkeypatch):
+    # configure_logging can't write its own failure to the file it just
+    # failed to open - this has to reach the user some other way, or a
+    # ticked "write a debug log" checkbox silently produces nothing.
+    monkeypatch.setattr(overlay_module, "configure_logging", lambda enabled: "Permission denied")
+
+    def fail_fast(host, port, password):
+        raise ObsAuthError("bad password")
+
+    monkeypatch.setattr(overlay_module, "connect_obs", fail_fast)
+
+    service = MapHideService()
+    service._running = True
+    cfg = AppConfig(
+        host="10.0.0.2",
+        port=4455,
+        password="wrong",
+        scene_item_name="Overlay",
+        hotkey="G",
+        toggle_mode=False,
+        hide_hotkey="H",
+        log_enabled=True,
+    )
+
+    service._run(cfg)
+
+    messages = []
+    while not service.events.empty():
+        messages.append(service.events.get_nowait()["message"])
+
+    assert any("Permission denied" in m for m in messages)
+
+
 # --- seed_key_edge_tracking ---------------------------------------------------
 
 

@@ -213,7 +213,13 @@ class MapHideService:
             self._emit("status", f"Reconnecting... {elapsed:g}s", history=False)
 
     def _run(self, cfg):
-        configure_logging(cfg.log_enabled)
+        log_start_error = configure_logging(cfg.log_enabled)
+        if log_start_error is not None:
+            self._emit(
+                "status",
+                f"Could not start the debug log: {log_start_error}",
+                live=False,
+            )
         show_vk_codes = cfg.show_vk_codes()
         hide_vk_codes = cfg.hide_vk_codes()
         same_key = show_vk_codes == hide_vk_codes

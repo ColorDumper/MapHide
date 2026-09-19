@@ -32,7 +32,11 @@ def _rotated_name(default_name):
 
 
 def configure_logging(enabled):
-    """Attach or drop the rotating file handler. Safe to call on every (re)start."""
+    """Attach or drop the rotating file handler. Safe to call on every
+    (re)start. Returns None when there is nothing to report - `enabled` was
+    False, or the handler attached fine - or an error message when it was
+    True but the file could not be opened, the one case worth telling a
+    caller about."""
     global _rolled_this_process
 
     for handler in list(logger.handlers):
@@ -41,17 +45,19 @@ def configure_logging(enabled):
 
     if not enabled:
         logger.setLevel(logging.CRITICAL)
-        return
+        return None
 
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         handler = RotatingFileHandler(
             LOG_PATH, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
         )
-    except OSError:
-        # A log file we cannot open is not a reason to stop MapHide.
+    except OSError as exc:
+        # A log file we cannot open is not a reason to stop MapHide - but
+        # the caller still needs to know, so a user who asked for one isn't
+        # left believing they have a report they don't.
         logger.setLevel(logging.CRITICAL)
-        return
+        return str(exc)
 
     handler.namer = _rotated_name
 
@@ -66,3 +72,4 @@ def configure_logging(enabled):
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
     logger.info("MapHide %s - logging started", APP_VERSION)
+    return None

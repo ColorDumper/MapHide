@@ -68,3 +68,31 @@ def test_a_new_launch_rolls_the_previous_log_aside(log_dir, monkeypatch):
     assert "old session" in (log_dir / "maphide-debug.1.log").read_text(encoding="utf-8")
     current = (log_dir / "maphide-debug.log").read_text(encoding="utf-8")
     assert "new session" in current and "old session" not in current
+
+
+# --- reporting whether logging actually started -----------------------------
+
+
+def test_disabled_has_nothing_to_report(log_dir):
+    assert logs.configure_logging(False) is None
+
+
+def test_enabled_has_nothing_to_report_on_success(log_dir):
+    assert logs.configure_logging(True) is None
+
+
+def test_enabled_reports_an_error_when_the_file_cannot_be_opened(log_dir, monkeypatch):
+    # A user who ticked "write a debug log" and got silence, with nothing
+    # telling them it never actually started, has no way to know their bug
+    # report will show up empty - this is the one case worth reporting.
+    def refuse(*args, **kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(logs, "RotatingFileHandler", refuse)
+
+    error = logs.configure_logging(True)
+
+    assert error is not None
+    assert "Permission denied" in error
+    assert logs.logger.handlers == []
+    assert logs.logger.level == logging.CRITICAL

@@ -225,7 +225,7 @@ def test_the_active_config_is_logged_at_startup_without_the_password_or_address(
 
     contents = (tmp_path / "maphide-debug.log").read_text(encoding="utf-8")
     assert "Overlay" in contents
-    assert "'hotkey': 'M'" in contents
+    assert "hotkey=M" in contents
     assert "10.0.0.2" not in contents
     assert "super secret" not in contents
 

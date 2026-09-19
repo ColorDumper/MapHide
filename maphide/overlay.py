@@ -221,7 +221,10 @@ class MapHideService:
                 live=False,
             )
         elif cfg.log_enabled:
-            logger.info("Config: %s", cfg.to_loggable_dict())
+            config_summary = ", ".join(
+                f"{key}={value}" for key, value in cfg.to_loggable_dict().items()
+            )
+            logger.info("Config: %s", config_summary)
         show_vk_codes = cfg.show_vk_codes()
         hide_vk_codes = cfg.hide_vk_codes()
         same_key = show_vk_codes == hide_vk_codes

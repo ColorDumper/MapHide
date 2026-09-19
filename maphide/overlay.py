@@ -220,6 +220,8 @@ class MapHideService:
                 f"Could not start the debug log: {log_start_error}",
                 live=False,
             )
+        elif cfg.log_enabled:
+            logger.info("Config: %s", cfg.to_loggable_dict())
         show_vk_codes = cfg.show_vk_codes()
         hide_vk_codes = cfg.hide_vk_codes()
         same_key = show_vk_codes == hide_vk_codes

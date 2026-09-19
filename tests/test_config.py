@@ -76,3 +76,19 @@ def test_hand_edited_delay_is_sanitised_on_load(tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({**BASE, "hide_delay_ms": 99_999}), encoding="utf-8")
     assert load_config(path).hide_delay_ms == MAX_HIDE_DELAY_MS
+
+
+def test_to_loggable_dict_excludes_the_password_and_the_network_address():
+    # host/port are effectively someone's network address, and password is
+    # never allowed near the log file - everything else is safe to include
+    # so a pasted debug log can be cross-referenced against what was
+    # actually configured at the time.
+    cfg = AppConfig.from_dict({**BASE, "hotkey": "M"})
+
+    loggable = cfg.to_loggable_dict()
+
+    assert "password" not in loggable
+    assert "host" not in loggable
+    assert "port" not in loggable
+    assert loggable["hotkey"] == "M"
+    assert loggable["scene_item_name"] == "Overlay"

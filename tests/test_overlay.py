@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from obsws_python.error import OBSSDKRequestError
 
 import maphide.overlay as overlay_module
+from maphide import logs
 from maphide.config import AppConfig
 from maphide.obs import ObsAuthError
 from maphide.overlay import (
@@ -192,6 +193,41 @@ def test_a_failed_debug_log_start_is_reported_as_an_event(monkeypatch):
         messages.append(service.events.get_nowait()["message"])
 
     assert any("Permission denied" in m for m in messages)
+
+
+def test_the_active_config_is_logged_at_startup_without_the_password_or_address(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(logs, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(logs, "LOG_PATH", tmp_path / "maphide-debug.log")
+    monkeypatch.setattr(logs, "_rolled_this_process", False)
+
+    def fail_fast(host, port, password):
+        raise ObsAuthError("bad password")
+
+    monkeypatch.setattr(overlay_module, "connect_obs", fail_fast)
+
+    service = MapHideService()
+    service._running = True
+    cfg = AppConfig(
+        host="10.0.0.2",
+        port=4455,
+        password="super secret",
+        scene_item_name="Overlay",
+        hotkey="M",
+        toggle_mode=False,
+        hide_hotkey="H",
+        log_enabled=True,
+    )
+
+    service._run(cfg)
+    logs.configure_logging(False)  # detach, matching tests/test_logs.py's own fixture teardown
+
+    contents = (tmp_path / "maphide-debug.log").read_text(encoding="utf-8")
+    assert "Overlay" in contents
+    assert "'hotkey': 'M'" in contents
+    assert "10.0.0.2" not in contents
+    assert "super secret" not in contents
 
 
 # --- seed_key_edge_tracking ---------------------------------------------------

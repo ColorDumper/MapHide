@@ -78,6 +78,14 @@ class AppConfig:
             "log_enabled": self.log_enabled,
         }
 
+    def to_loggable_dict(self):
+        """Everything except the password and the OBS host/port - the
+        password never belongs near the log file, and host/port are
+        effectively someone's network address. Safe to put in the debug
+        log or anywhere else a user might end up sharing verbatim."""
+        excluded = {"password", "host", "port"}
+        return {key: value for key, value in self.to_dict().items() if key not in excluded}
+
     def show_vk_codes(self):
         return hotkey_to_vk_codes(self.hotkey, fallback=[HOTKEY_TO_VK["G"]])
 

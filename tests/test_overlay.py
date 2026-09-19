@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 
 import maphide.overlay as overlay_module
 from maphide.config import AppConfig
+from maphide.obs import ObsAuthError
 from maphide.overlay import (
     MapHideService,
     find_stale_scene,
@@ -78,6 +79,48 @@ def test_emit_includes_the_event_kind():
 
     event = service.events.get_nowait()
     assert event["kind"] == "status"
+
+
+def test_stopped_is_queued_before_running_flips_false(monkeypatch):
+    # ui.py's _finish_service_restart polls is_running to know when it is
+    # safe to start the replacement worker after a Save Settings restart. If
+    # "stopped" were queued *after* is_running flips False, a poll landing
+    # in that gap could start the new worker - and let it enqueue its own
+    # events - before the old "stopped" event even reaches the queue,
+    # letting a stale "MapHide stopped." land on top of the new worker's
+    # live status a moment after it was already showing something current.
+    service = MapHideService()
+    service._running = True  # normally set by start(), bypassed here
+    running_when_stopped_was_emitted = []
+    original_emit = service._emit
+
+    def spying_emit(kind, message, **kwargs):
+        if kind == "stopped":
+            running_when_stopped_was_emitted.append(service.is_running)
+        original_emit(kind, message, **kwargs)
+
+    monkeypatch.setattr(service, "_emit", spying_emit)
+
+    def fail_fast(host, port, password):
+        raise ObsAuthError("bad password")
+
+    monkeypatch.setattr(overlay_module, "connect_obs", fail_fast)
+
+    cfg = AppConfig(
+        host="10.0.0.2",
+        port=4455,
+        password="wrong",
+        scene_item_name="Overlay",
+        hotkey="G",
+        toggle_mode=False,
+        hide_hotkey="H",
+    )
+
+    # A bad password gives up immediately (no retry), reaching finally fast
+    # and deterministically - run synchronously, no real thread needed.
+    service._run(cfg)
+
+    assert running_when_stopped_was_emitted == [True]
 
 
 # --- seed_key_edge_tracking ---------------------------------------------------

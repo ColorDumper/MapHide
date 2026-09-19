@@ -355,5 +355,11 @@ class MapHideService:
             if client is not None:
                 disconnect_obs(client)
 
-            self._running = False
+            # Emitted before the flag flips, not after: ui.py's restart polling
+            # waits for is_running to go False before starting the replacement
+            # worker, and must never be able to observe that before "stopped"
+            # has already reached the queue - otherwise the new worker's own
+            # events could land ahead of this one, and a stale "stopped" would
+            # overwrite a live status that had already moved on.
             self._emit("stopped", final_status_message)
+            self._running = False

@@ -2,6 +2,44 @@
 
 All notable changes to MapHide are documented here.
 
+## Unreleased
+
+- Added a guard against two copies of MapHide running at once. Launching it
+  again while it's already running just brings the existing window (or its
+  "already running" notice) to the front instead of starting a second copy.
+- Added an "Auto reconnect" toggle in the settings panel.
+- Added a warning icon next to the Password field when it's empty, since an
+  OBS WebSocket server without a password lets anyone on your network
+  control it.
+- Fixed the overlay sometimes staying visible in OBS after closing MapHide
+  (or pressing Ctrl+C in headless mode) when the source lived in more than
+  one scene. MapHide now waits for it to actually finish hiding everywhere
+  before exiting.
+- Fixed a hide that was still counting down (waiting out the hide delay)
+  being lost if the OBS connection dropped at that moment - it now still
+  lands once reconnected.
+- Fixed toggle mode occasionally firing an extra, unwanted toggle right
+  after a reconnect, or while a key was being held down.
+- Fixed a quick key tap sometimes being missed if it happened while MapHide
+  was mid-request to OBS.
+- Fixed Stop not taking effect immediately if MapHide was in the middle of
+  waiting to retry a dropped OBS connection.
+- MapHide now retries its very first connection attempt, not just later
+  ones, when OBS simply isn't open yet instead of giving up.
+- Fixed a deleted or renamed OBS scene sometimes disconnecting MapHide
+  entirely instead of just being dropped from what it tracks.
+- MapHide now notices if you add the overlay source to your current scene,
+  without needing to switch away and back.
+- Hotkey toggles stay fast and flicker-free with many OBS scenes: each
+  scene's state is now tracked individually, so only the active scene needs
+  a write on a toggle, and the rest catch up quietly in the background.
+- The debug log now records your active settings at startup (except the
+  password and OBS address), and reports if it failed to start instead of
+  staying silent.
+- Reworked the in-app history log, fixed the live status line flickering,
+  tidied up window sizing, and brought back the footer watermark.
+- Further internal cleanup, with no other change to how MapHide works.
+
 ## v0.2.5 - 2026-09-05
 
 - The title bar is now dark to match the rest of the window, and the window

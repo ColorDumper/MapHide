@@ -83,6 +83,25 @@ def sync_scene_if_stale(client, scene_items, scene_synced, scene_name, visible):
         sync_scene(client, scene_items, scene_synced, scene_name, visible)
 
 
+def catch_up_one_stale_scene(client, scene_items, scene_synced, exclude, target_visible):
+    """Write `target_visible` to the next scene (other than `exclude`) still
+    waiting to catch up, one scene per call. If OBS rejects the write, the
+    scene itself (or the source's place in it) most likely no longer
+    exists: drop it from scene_items and handle that locally, rather than
+    letting one stale background scene look like the whole connection died.
+    Returns the name of a scene dropped this way, or None."""
+    stale_scene = find_stale_scene(scene_items, scene_synced, exclude, target_visible)
+    if stale_scene is None:
+        return None
+    try:
+        sync_scene(client, scene_items, scene_synced, stale_scene, target_visible)
+    except ObsConnectionError:
+        del scene_items[stale_scene]
+        scene_synced.pop(stale_scene, None)
+        return stale_scene
+    return None
+
+
 def recheck_missing_source(client, scene_items, scene_name, source_name):
     """If `source_name` isn't yet known to be in `scene_name`, ask OBS again -
     a single-scene request, not a full rescan, and nothing at all once it is
@@ -365,12 +384,16 @@ class MapHideService:
                     # One other scene, at most, catches up per poll - the active scene
                     # already got its own write above, so this never costs more than a
                     # single extra request, and only while something is actually behind.
-                    stale_scene = find_stale_scene(
-                        scene_items, scene_synced, active_scene_name, state.overlay_visible
+                    # A rejected write (the scene was deleted or renamed) is handled
+                    # locally rather than torn down like a real connection failure.
+                    dropped_scene = catch_up_one_stale_scene(
+                        client, scene_items, scene_synced, active_scene_name, state.overlay_visible
                     )
-                    if stale_scene is not None:
-                        sync_scene(
-                            client, scene_items, scene_synced, stale_scene, state.overlay_visible
+                    if dropped_scene is not None:
+                        self._emit(
+                            "status",
+                            f"Scene '{dropped_scene}' is no longer available in OBS.",
+                            live=False,
                         )
 
                     time.sleep(POLL_INTERVAL)

@@ -13,11 +13,14 @@ Two scenarios get a dedicated regression test:
 from dataclasses import replace
 from datetime import datetime, timedelta
 
+from obsws_python.error import OBSSDKRequestError
+
 import maphide.overlay as overlay_module
 from maphide.config import AppConfig
 from maphide.obs import ObsAuthError
 from maphide.overlay import (
     MapHideService,
+    catch_up_one_stale_scene,
     find_stale_scene,
     recheck_missing_source,
     scene_is_stale,
@@ -68,6 +71,25 @@ class SceneItemLookupClient:
         self.calls.append((req_type, payload))
         if req_type == "GetSceneItemList":
             return self.get_scene_item_list_response
+        return {}
+
+
+class FailingSceneClient:
+    """Like RecordingClient, but raises when writing to a specific scene
+    item ID - simulates OBS rejecting a write because the scene (or the
+    source's place in it) no longer exists."""
+
+    def __init__(self, fails_for_scene_item_id):
+        self.fails_for_scene_item_id = fails_for_scene_item_id
+        self.calls = []
+
+    def send(self, req_type, payload, raw=True):
+        self.calls.append((req_type, payload))
+        if (
+            req_type == "SetSceneItemEnabled"
+            and payload["sceneItemId"] == self.fails_for_scene_item_id
+        ):
+            raise OBSSDKRequestError("SetSceneItemEnabled", 600, "scene item not found")
         return {}
 
 
@@ -252,6 +274,48 @@ def test_sync_scene_does_not_mark_a_scene_synced_when_its_item_id_is_unknown():
     sync_scene(client, scene_items, scene_synced, "SceneB", True)
 
     assert client.calls == []
+    assert scene_synced == {}
+
+
+# --- catch_up_one_stale_scene --------------------------------------------------
+
+
+def test_catch_up_one_stale_scene_does_nothing_when_nothing_is_stale():
+    client = RecordingClient()
+    scene_items = {"Gameplay": 1}
+    scene_synced = {"Gameplay": True}
+
+    dropped = catch_up_one_stale_scene(client, scene_items, scene_synced, "Gameplay", True)
+
+    assert dropped is None
+    assert client.calls == []
+
+
+def test_catch_up_one_stale_scene_writes_normally_on_success():
+    client = RecordingClient()
+    scene_items = {"Gameplay": 1, "Just Chatting": 2}
+    scene_synced = {}
+
+    dropped = catch_up_one_stale_scene(client, scene_items, scene_synced, "Gameplay", True)
+
+    assert dropped is None
+    assert client.calls == [_scene_call("Just Chatting", 2, True)]
+    assert scene_synced == {"Just Chatting": True}
+
+
+def test_catch_up_one_stale_scene_drops_a_scene_whose_write_is_rejected():
+    # A deleted or renamed scene's cached item ID goes stale - OBS rejects
+    # the write, and this must be handled locally (drop the scene from
+    # tracking) rather than letting the failure propagate and look like the
+    # whole connection died, which is what happened before this existed.
+    client = FailingSceneClient(fails_for_scene_item_id=2)
+    scene_items = {"Gameplay": 1, "Deleted Scene": 2}
+    scene_synced = {}
+
+    dropped = catch_up_one_stale_scene(client, scene_items, scene_synced, "Gameplay", True)
+
+    assert dropped == "Deleted Scene"
+    assert scene_items == {"Gameplay": 1}
     assert scene_synced == {}
 
 

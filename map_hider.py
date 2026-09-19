@@ -5,16 +5,18 @@ Entry point for MapHide. Runs on the gaming PC, watches for the configured
 key, and tells OBS on the streaming PC to show or hide the overlay source.
 
 The application itself lives in the maphide package:
-    config.py   the settings file: its shape, and reading and writing it
-    hotkeys.py  reading the keyboard
-    state.py    deciding what the overlay should be (pure, no I/O)
-    overlay.py  the worker: polls the keys, runs the decision, drives OBS
-    obs.py      talking to OBS over the WebSocket
-    ui.py       the settings window and tray icon
-    paths.py    where MapHide's files live
-    logs.py     the opt-in debug log
+    config.py            the settings file: its shape, and reading and writing it
+    hotkeys.py           reading the keyboard
+    state.py             deciding what the overlay should be (pure, no I/O)
+    overlay.py           the worker: polls the keys, runs the decision, drives OBS
+    obs.py               talking to OBS over the WebSocket
+    ui.py                the settings window and tray icon
+    paths.py             where MapHide's files live
+    logs.py              the opt-in debug log
+    single_instance.py   the guard against two copies running at once
 """
 
+import ctypes
 import json
 import queue
 import sys
@@ -22,9 +24,22 @@ import sys
 from maphide.config import default_config, load_config
 from maphide.overlay import MapHideService
 from maphide.paths import CONFIG_PATH
+from maphide.single_instance import acquire as acquire_single_instance
 
 EVENT_POLL_SECONDS = 0.5
 SHUTDOWN_WAIT_SECONDS = 2
+ALREADY_RUNNING_MESSAGE = "MapHide is already running."
+ALREADY_RUNNING_NOTICE_MUTEX = "Local\\MapHide-AlreadyRunningNotice"
+# Distinct from the main window's title ("MapHide") so FindWindowW below can
+# only ever match this notice, never the app itself.
+NOTICE_TITLE = "MapHide - Already Running"
+# The standard Win32 dialog class MessageBoxW creates its window as.
+NOTICE_WINDOW_CLASS = "#32770"
+MB_ICONWARNING = 0x30
+
+_show_message_box = ctypes.windll.user32.MessageBoxW
+_find_window = ctypes.windll.user32.FindWindowW
+_set_foreground_window = ctypes.windll.user32.SetForegroundWindow
 
 
 def run_headless():
@@ -84,10 +99,37 @@ def run_selftest():
     from maphide import obs, overlay, state, ui  # noqa: F401
 
 
+def report_already_running(headless, notice_name=ALREADY_RUNNING_NOTICE_MUTEX):
+    if headless:
+        print(ALREADY_RUNNING_MESSAGE)
+        return
+    # A user clicking the exe several times in a row while it's already
+    # running would otherwise pop one message box per click - each launch is
+    # a separate process, so nothing but a second mutex could stop them
+    # stacking up. Only the first one to grab it owns the box; every later
+    # click brings that same one to the front instead of opening another.
+    if not acquire_single_instance(notice_name):
+        existing = _find_window(NOTICE_WINDOW_CLASS, NOTICE_TITLE)
+        if existing:
+            _set_foreground_window(existing)
+        return
+    # A plain Win32 message box, not Tk: this can fire before any window
+    # exists, and a launch that's about to exit has no reason to spin one up.
+    _show_message_box(0, ALREADY_RUNNING_MESSAGE, NOTICE_TITLE, MB_ICONWARNING)
+
+
 def main():
     if "--selftest" in sys.argv:
         run_selftest()
-    elif "--headless" in sys.argv:
+        return
+
+    headless = "--headless" in sys.argv
+
+    if not acquire_single_instance():
+        report_already_running(headless)
+        sys.exit(1)
+
+    if headless:
         run_headless()
     else:
         # Imported here so headless mode never needs Tk to be present.

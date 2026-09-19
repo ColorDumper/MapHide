@@ -119,6 +119,7 @@ class MapHideService:
         logger.log(logging.ERROR if kind == "error" else logging.INFO, "%s: %s", kind, message)
         self._events.put(
             {
+                "kind": kind,
                 "message": message,
                 "timestamp": human_ts(),
                 "history": history,

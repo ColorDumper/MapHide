@@ -13,7 +13,13 @@ Two scenarios get a dedicated regression test:
 from datetime import datetime, timedelta
 
 from maphide.config import AppConfig
-from maphide.overlay import find_stale_scene, scene_is_stale, scene_status, sync_scene
+from maphide.overlay import (
+    MapHideService,
+    find_stale_scene,
+    scene_is_stale,
+    scene_status,
+    sync_scene,
+)
 from maphide.state import HIDE, SHOW, OverlayState, decide
 
 START = datetime(2026, 1, 1, 12, 0, 0)
@@ -54,6 +60,21 @@ def _scene_call(scene_name, scene_item_id, enabled):
             "sceneItemEnabled": enabled,
         },
     )
+
+
+# --- MapHideService._emit -----------------------------------------------------
+
+
+def test_emit_includes_the_event_kind():
+    # map_hider.py's run_headless() branches on event["kind"] to know when
+    # an error or a stop means the run is truly over, not just mid-retry - a
+    # dict missing that key crashes the moment the first event arrives.
+    service = MapHideService()
+
+    service._emit("status", "Connected to OBS.")
+
+    event = service.events.get_nowait()
+    assert event["kind"] == "status"
 
 
 # --- scene_is_stale ----------------------------------------------------------

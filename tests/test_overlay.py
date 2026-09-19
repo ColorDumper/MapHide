@@ -10,14 +10,17 @@ Two scenarios get a dedicated regression test:
   you do.
 """
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 
+import maphide.overlay as overlay_module
 from maphide.config import AppConfig
 from maphide.overlay import (
     MapHideService,
     find_stale_scene,
     scene_is_stale,
     scene_status,
+    seed_key_edge_tracking,
     sync_scene,
 )
 from maphide.state import HIDE, SHOW, OverlayState, decide
@@ -75,6 +78,44 @@ def test_emit_includes_the_event_kind():
 
     event = service.events.get_nowait()
     assert event["kind"] == "status"
+
+
+# --- seed_key_edge_tracking ---------------------------------------------------
+
+
+def test_seed_key_edge_tracking_seeds_from_a_real_poll(monkeypatch):
+    calls = []
+
+    def fake_poll_hotkey(vk_codes):
+        calls.append(list(vk_codes))
+        return (vk_codes == [1], False)
+
+    monkeypatch.setattr(overlay_module, "poll_hotkey", fake_poll_hotkey)
+    cfg = replace(hold_config(), toggle_mode=True)
+
+    seeded = seed_key_edge_tracking(OverlayState(), cfg, [1], [2])
+
+    assert calls == [[1], [2]]
+    assert seeded.show_key_was_down is True
+    assert seeded.hide_key_was_down is False
+
+
+def test_seed_key_edge_tracking_skips_the_hide_poll_in_hold_mode(monkeypatch):
+    # Matches the same toggle_mode gate the main poll loop already uses -
+    # hold mode never reads hide_key_was_down, so there is nothing to poll.
+    calls = []
+
+    def fake_poll_hotkey(vk_codes):
+        calls.append(list(vk_codes))
+        return (True, False)
+
+    monkeypatch.setattr(overlay_module, "poll_hotkey", fake_poll_hotkey)
+    cfg = hold_config()
+
+    seeded = seed_key_edge_tracking(OverlayState(), cfg, [1], [2])
+
+    assert calls == [[1]]
+    assert seeded.hide_key_was_down is False
 
 
 # --- scene_is_stale ----------------------------------------------------------

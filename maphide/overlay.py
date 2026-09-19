@@ -70,6 +70,20 @@ def scene_status(scene_name, is_first_detection=False):
     return f"{verb}: {scene_name}."
 
 
+def seed_key_edge_tracking(state, cfg, show_vk_codes, hide_vk_codes):
+    """Reset show_key_was_down/hide_key_was_down from a real poll of the
+    current key state, not a blind False - run on every (re)connect. A key
+    still physically held through the outage must not look like a fresh
+    press the moment polling resumes."""
+    show_key_down_now, _ = poll_hotkey(show_vk_codes)
+    hide_key_down_now, _ = poll_hotkey(hide_vk_codes) if cfg.toggle_mode else (False, False)
+    return replace(
+        state,
+        show_key_was_down=show_key_down_now,
+        hide_key_was_down=hide_key_down_now,
+    )
+
+
 def human_ts():
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
@@ -188,11 +202,7 @@ class MapHideService:
                         # hide_requested_at deliberately survives: a hide already
                         # armed before the drop must still land once reconnected,
                         # not evaporate because nothing changed key-wise since.
-                        state = replace(
-                            state,
-                            show_key_was_down=False,
-                            hide_key_was_down=False,
-                        )
+                        state = seed_key_edge_tracking(state, cfg, show_vk_codes, hide_vk_codes)
                         failure_in_history = False
                         had_successful_connection = True
                         self._emit("status", "Connected to OBS.")
@@ -323,11 +333,7 @@ class MapHideService:
                     # reconnect, and dropping the third would strand an already-armed hide.
                     active_scene_name = None
                     scene_synced = {}
-                    state = replace(
-                        state,
-                        show_key_was_down=False,
-                        hide_key_was_down=False,
-                    )
+                    state = seed_key_edge_tracking(state, cfg, show_vk_codes, hide_vk_codes)
                     if not cfg.auto_reconnect:
                         final_status_message = error_message
                         break

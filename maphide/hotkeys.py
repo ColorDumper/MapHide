@@ -13,7 +13,12 @@ STANDALONE_HIDE_KEY_LABELS = ("ESC", "SHIFT")
 # Windows reports the key's current state in the high bit. The low bit is a
 # was-pressed-since-last-call flag: it still reads true even if the key is
 # back up by the time we check, which is what lets poll_hotkey below notice
-# a press that happened while the worker was blocked on an OBS call.
+# a press that happened while the worker was blocked on an OBS call. It is
+# not reliable while the key is still down, though - Windows' keyboard
+# auto-repeat re-asserts it roughly every 30ms for as long as a key is held,
+# even though the key never actually releases in between (confirmed against
+# real hardware). Only trust it while the key currently reads up; see
+# state.py's decide().
 KEY_DOWN_MASK = 0x8000
 KEY_PRESSED_SINCE_MASK = 0x0001
 MODIFIER_KEYSYMS = {

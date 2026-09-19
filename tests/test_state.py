@@ -1,5 +1,6 @@
 """Tests for the hold/toggle decision, driven by a fake clock and fake keys."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from maphide.config import AppConfig
@@ -277,22 +278,75 @@ def test_toggle_separate_keys_hide_registers_a_press_already_released_by_this_po
     assert state.desired_visible is False
 
 
+# --- a "pressed since" flicker while the key is still down must not retoggle -
+
+
+def test_holding_the_key_does_not_retoggle_even_if_pressed_since_flickers():
+    # Confirmed against real hardware: Windows' keyboard auto-repeat
+    # re-asserts GetAsyncKeyState's "pressed since last check" bit roughly
+    # every 30ms for as long as a key is held, even though it never actually
+    # releases in between. show_key_pressed/hide_key_pressed must only be
+    # trusted while the key currently reads up - the down-state comparison
+    # already handles a genuine fresh press reliably on its own.
+    cfg = toggle_config(hotkey="M", hide_hotkey="M")
+    state, action = decide(cfg, OverlayState(), True, True, True, True, at(0))
+    assert action == SHOW
+    assert state.show_key_was_down is True
+
+    # M is still held; show_key_pressed flickers True again via auto-repeat.
+    state, action = decide(
+        cfg,
+        state,
+        True,
+        True,
+        True,
+        True,
+        at(30),
+        show_key_pressed=True,
+        hide_key_pressed=True,
+    )
+    assert action is None
+    assert state.desired_visible is True
+
+
+def test_holding_the_hide_key_does_not_rehide_after_a_later_show_even_if_pressed_since_flickers():
+    # H bound as a separate hide key (e.g. a sprint key in-game) is already
+    # held and already fully registered - then G shows while H stays held
+    # the whole time. A later auto-repeat flicker on H must not re-hide
+    # something the user just asked to show; H itself never changed.
+    cfg = toggle_config(hotkey="G", hide_hotkey="H")
+    state = OverlayState()
+
+    # H starts held - registers correctly, but hiding an already-hidden
+    # overlay is a no-op (matches a real key that's just bound this way).
+    state, action = decide(cfg, state, False, True, False, True, at(0))
+    assert action is None
+    assert state.hide_key_was_down is True
+
+    # G is pressed while H stays held the whole time - shows.
+    state, action = decide(cfg, state, True, True, False, True, at(10))
+    assert action == SHOW
+    assert state.desired_visible is True
+
+    # H's auto-repeat flicker fires again, though H was never released.
+    state, action = decide(cfg, state, False, True, False, True, at(40), hide_key_pressed=True)
+    assert action is None
+    assert state.desired_visible is True
+
+
 # --- state carried across a dropped connection -------------------------------
 
 
 def test_intent_survives_a_reconnect_reset():
-    # What the worker keeps when the link drops: the intent and what OBS was
-    # last told, but nothing about the keys.
+    # What the worker keeps when the link drops: the intent, what OBS was
+    # last told, and a hide already counting down - only the key-edge
+    # tracking (meaningless after a polling gap) is reset. See overlay.py.
     cfg = hold_config()
     state, _ = drive(cfg, [(0, True, False)])
     assert state.desired_visible is True
     assert state.overlay_visible is True
 
-    from dataclasses import replace
-
-    reconnected = replace(
-        state, hide_requested_at=None, show_key_was_down=False, hide_key_was_down=False
-    )
+    reconnected = replace(state, show_key_was_down=False, hide_key_was_down=False)
     assert reconnected.desired_visible is True
     assert reconnected.overlay_visible is True
 
@@ -308,8 +362,6 @@ def test_a_hide_already_pending_at_reconnect_still_lands():
     assert state.overlay_visible is True
     assert state.hide_requested_at is not None  # still counting down at reconnect
 
-    from dataclasses import replace
-
     # hide_requested_at survives the reset (see overlay.py) - only the
     # key-edge tracking, which is meaningless after a polling gap, is reset.
     reconnected = replace(state, show_key_was_down=False, hide_key_was_down=False)
@@ -318,3 +370,59 @@ def test_a_hide_already_pending_at_reconnect_still_lands():
     # resumes - the hide should land on the very next poll, not be lost.
     _, actions = drive(cfg, [(5000, False, False)], state=reconnected)
     assert actions == [(5000, HIDE)]
+
+
+def test_a_key_held_through_a_reconnect_does_not_toggle_again():
+    # Press and hold M: shows once, and holding it doesn't toggle again
+    # while connected - same as
+    # test_toggle_same_key_holding_the_key_is_a_single_toggle.
+    cfg = toggle_config(hotkey="M", hide_hotkey="M", hide_delay_ms=0)
+    state, actions = drive(cfg, [(0, True, True), (100, True, True), (500, True, True)])
+    assert actions == [(0, SHOW)]
+    assert state.desired_visible is True
+
+    # Reconnect: overlay.py seeds the key-edge tracking from a real poll, not
+    # a blind False - M is still genuinely held down at this instant, so a
+    # fresh read of the key correctly reports it as already down.
+    reconnected = replace(state, show_key_was_down=True, hide_key_was_down=True)
+
+    # M is still held on the very next poll after reconnect - nothing the
+    # user did should change what MapHide wants, let alone what it tells OBS.
+    state, actions = drive(cfg, [(1000, True, True)], state=reconnected)
+    assert state.desired_visible is True
+    assert actions == []
+
+
+def test_holding_the_show_key_through_a_reconnect_is_safe_for_separate_keys():
+    # Separate show/hide keys: a phantom "press" of the show key just
+    # re-asserts show (it doesn't toggle), so this one is a no-op regardless -
+    # included as a contrast to the hide-key case below.
+    cfg = toggle_config(hotkey="G", hide_hotkey="H", hide_delay_ms=0)
+    state, actions = drive(cfg, [(0, True, False)])
+    assert actions == [(0, SHOW)]
+    assert state.desired_visible is True
+
+    # G is still held at reconnect; H was never touched.
+    reconnected = replace(state, show_key_was_down=True, hide_key_was_down=False)
+
+    state, actions = drive(cfg, [(1000, True, False)], state=reconnected)
+    assert state.desired_visible is True
+    assert actions == []
+
+
+def test_holding_the_hide_key_through_a_reconnect_falsely_hides_for_separate_keys():
+    # H being held doesn't have to mean the user pressed it to hide - it
+    # could be bound to something else entirely (Shift for sprint, say) and
+    # just happen to be down at the exact moment of a reconnect. A real poll
+    # at that instant correctly reports it as already down, not fresh.
+    cfg = toggle_config(hotkey="G", hide_hotkey="H", hide_delay_ms=0)
+    state, actions = drive(cfg, [(0, True, False)])
+    assert actions == [(0, SHOW)]
+    assert state.desired_visible is True
+
+    # G was released before the reconnect; H is genuinely held at this instant.
+    reconnected = replace(state, show_key_was_down=False, hide_key_was_down=True)
+
+    state, actions = drive(cfg, [(1000, False, True)], state=reconnected)
+    assert state.desired_visible is True
+    assert actions == []

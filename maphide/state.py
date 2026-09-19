@@ -48,8 +48,12 @@ def decide(
 
     `show_key_pressed`/`hide_key_pressed` report a press since the last poll
     even if the key is already back up (see hotkeys.poll_hotkey). They only
-    add edges the plain down-state comparison below would otherwise catch, so
-    a caller that never passes them keeps today's behaviour exactly.
+    add edges the plain down-state comparison below would otherwise catch -
+    and only while the key currently reads up: Windows' keyboard auto-repeat
+    re-asserts them roughly every 30ms for as long as a key is held, even
+    though it never actually releases in between, so they are ignored
+    whenever the down-state comparison can already speak for itself. A
+    caller that never passes them keeps today's behaviour exactly.
     """
     desired_visible = state.desired_visible
     previous_desired = desired_visible
@@ -57,8 +61,12 @@ def decide(
     hide_key_was_down = state.hide_key_was_down
 
     if cfg.toggle_mode:
-        show_pressed = show_key_pressed or (show_key_down and not show_key_was_down)
-        hide_pressed = hide_key_pressed or (hide_key_down and not hide_key_was_down)
+        show_pressed = (not show_key_down and show_key_pressed) or (
+            show_key_down and not show_key_was_down
+        )
+        hide_pressed = (not hide_key_down and hide_key_pressed) or (
+            hide_key_down and not hide_key_was_down
+        )
         if overlay_available:
             if same_key:
                 if show_pressed:

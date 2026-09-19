@@ -1,4 +1,5 @@
-"""Tests for map_hider.py's entry point: the already-running notice's UX."""
+"""Tests for map_hider.py's entry point: the already-running notice's UX, and
+the headless Ctrl+C shutdown-wait polling loop."""
 
 import uuid
 
@@ -96,3 +97,57 @@ def test_headless_prints_every_time_instead_of_deduping(capsys):
 
     out = capsys.readouterr().out
     assert out.count(map_hider.ALREADY_RUNNING_MESSAGE) == 2
+
+
+# --- _wait_for_service_stop (Ctrl+C shutdown wait) ----------------------------
+#
+# Duck-typed in place of a real MapHideService: none of these tests actually
+# sleep, since the fake's wait() just flips is_running by itself rather than
+# joining a real thread - what's under test is the polling loop's logic
+# (when does it stop calling wait() again?), not real timing.
+
+
+class _FakeService:
+    def __init__(self, stops_after_waits):
+        self.is_running = True
+        self.wait_calls = 0
+        self._stops_after_waits = stops_after_waits
+
+    def wait(self, timeout):
+        self.wait_calls += 1
+        if self.wait_calls >= self._stops_after_waits:
+            self.is_running = False
+
+
+def test_returns_as_soon_as_the_service_actually_stops():
+    service = _FakeService(stops_after_waits=3)
+
+    map_hider._wait_for_service_stop(service, ceiling_ms=10_000, poll_seconds=0.001)
+
+    assert service.wait_calls == 3
+    assert service.is_running is False
+
+
+def test_a_slow_shutdown_within_the_ceiling_is_not_cut_short():
+    # What the old fixed SHUTDOWN_WAIT_SECONDS=2 would have gotten wrong:
+    # the worker takes longer than that to actually stop (e.g. still
+    # writing "hide" to several scenes on the way out via
+    # set_overlay_enabled's all_scenes sweep), but well within the new
+    # ceiling - it must be waited out, not cut short.
+    service = _FakeService(stops_after_waits=20)  # 20 * 0.25s poll = 5s > the old 2s wait
+
+    map_hider._wait_for_service_stop(service, ceiling_ms=15_000, poll_seconds=0.25)
+
+    assert service.wait_calls == 20
+    assert service.is_running is False
+
+
+def test_gives_up_at_the_ceiling_if_the_service_never_reports_stopped():
+    # The backstop: Ctrl+C must still eventually let the process exit even
+    # if something someday blocks past its own timeouts.
+    service = _FakeService(stops_after_waits=10**9)  # never actually stops
+
+    map_hider._wait_for_service_stop(service, ceiling_ms=5, poll_seconds=0.01)
+
+    assert service.is_running is True  # gave up - not because it stopped
+    assert service.wait_calls == 1  # one 10ms poll already clears the 5ms ceiling

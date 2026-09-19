@@ -141,6 +141,28 @@ def human_ts():
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
 
+def stop_wait_should_continue(is_running, elapsed_ms, ceiling_ms):
+    """Whether a poll loop waiting on a MapHideService to stop should keep
+    going. Used by both the GUI (ui.py) and headless (map_hider.py) shutdown
+    paths, so it lives next to the service itself rather than in either one.
+
+    Pure - no clock, no thread, no Tk - so the cutoff logic is testable on
+    its own, without a real timer or a live worker thread. `ceiling_ms=None`
+    means wait indefinitely (a GUI Save Settings restart: the app keeps
+    running either way, so there is no reason to ever give up on the old
+    worker's own cleanup). A numeric ceiling is a backstop for actually
+    exiting, where the process must eventually finish regardless of how long
+    that cleanup takes - the shutdown sweep can touch more than one scene,
+    see set_overlay_enabled's all_scenes write in this module's finally
+    block below.
+    """
+    if not is_running:
+        return False
+    if ceiling_ms is not None and elapsed_ms >= ceiling_ms:
+        return False
+    return True
+
+
 class MapHideService:
     def __init__(self):
         self._thread = None

@@ -43,7 +43,7 @@ from .hotkeys import (
     is_valid_show_hotkey,
     normalize_event_key,
 )
-from .overlay import MapHideService, human_ts
+from .overlay import MapHideService, human_ts, stop_wait_should_continue
 from .paths import (
     APP_NAME,
     APP_USER_MODEL_ID,
@@ -64,7 +64,12 @@ HELP_AREA_HEIGHT = 44
 EVENT_DRAIN_INTERVAL_MS = 100
 AUTO_CONNECT_DELAY_MS = 250
 RESTART_POLL_INTERVAL_MS = 50
-SERVICE_STOP_WAIT = 1.5
+# A backstop, not a normal-case budget: the worker's own shutdown cleanup can
+# legitimately take a moment (one OBS request per scene carrying the overlay
+# source), so exit polls for it to actually finish rather than guessing at a
+# fixed wait - see stop_wait_should_continue. This only ever matters if that
+# cleanup somehow runs far longer than any realistic scene count justifies.
+EXIT_WAIT_CEILING_MS = 15_000
 KEY_CAPTURE_PROMPT = "Press key..."
 KEY_UNSET_LABEL = "Select"
 SETTINGS_SHOW_LABEL = "Settings >"
@@ -809,15 +814,12 @@ class MapHideApp:
         self.restart_pending = True
         self._sync_service_buttons()
         self.service.stop()
-        self.root.after(RESTART_POLL_INTERVAL_MS, self._finish_service_restart)
+        # No ceiling: MapHide keeps running either way, so there is no reason
+        # to give up on the old worker's own shutdown cleanup early and start
+        # a new one on top of it.
+        self._wait_for_service_stop(ceiling_ms=None, on_stopped=self._finish_service_restart)
 
     def _finish_service_restart(self):
-        # The worker clears its running flag on the way out, so wait for it
-        # rather than starting a second one on top of it.
-        if self.service.is_running:
-            self.root.after(RESTART_POLL_INTERVAL_MS, self._finish_service_restart)
-            return
-
         cfg = self.pending_restart_config
         self.restart_pending = False
         self.pending_restart_config = None
@@ -826,6 +828,23 @@ class MapHideApp:
         except RuntimeError as exc:
             self.status_var.set(str(exc))
         self._sync_service_buttons()
+
+    def _wait_for_service_stop(self, ceiling_ms, on_stopped, elapsed_ms=0):
+        """Poll until the worker actually reports stopped, then run on_stopped.
+
+        See stop_wait_should_continue for the cutoff logic this drives -
+        pulled out on its own so the timing decision itself is unit
+        testable without a real Tk loop or a real worker thread.
+        """
+        if stop_wait_should_continue(self.service.is_running, elapsed_ms, ceiling_ms):
+            self.root.after(
+                RESTART_POLL_INTERVAL_MS,
+                lambda: self._wait_for_service_stop(
+                    ceiling_ms, on_stopped, elapsed_ms + RESTART_POLL_INTERVAL_MS
+                ),
+            )
+            return
+        on_stopped()
 
     def _sync_service_buttons(self):
         # Derived from what the service is doing, not from the event stream. A
@@ -1120,16 +1139,18 @@ class MapHideApp:
 
     def _hide_to_tray(self):
         if self.tray_icon is None:
-            self.exit_requested = True
-            self.service.stop()
-            self.service.wait(timeout=SERVICE_STOP_WAIT)
-            self.root.destroy()
+            self._begin_exit()
             return
 
         self.root.withdraw()
         self.status_var.set("MapHide is still running in the system tray.")
 
     def _show_window(self):
+        if self.exit_requested:
+            # A tray "Show" click can still land while a just-requested exit
+            # is waiting on the worker's shutdown cleanup in the background -
+            # nothing to reveal, the window is on its way out either way.
+            return
         current_state = self.root.state()
         if current_state == "withdrawn":
             self._reveal_window()
@@ -1144,12 +1165,24 @@ class MapHideApp:
         self.root.after(0, self._show_window)
 
     def _on_tray_exit(self, icon=None, item=None):
-        self.root.after(0, self._exit_app)
+        self.root.after(0, self._begin_exit)
 
-    def _exit_app(self):
+    def _begin_exit(self):
+        # A second Exit click while the first is still waiting on the worker
+        # to stop must not start a second wait chain - _finish_exit destroys
+        # the root and stops the tray icon, neither safe to do twice.
+        if self.exit_requested:
+            return
+        # Withdrawn immediately so quitting feels instant, rather than
+        # leaving a visible window that looks frozen while the worker's own
+        # shutdown cleanup (which can take longer than a moment if the
+        # overlay source lives in several scenes) finishes behind it.
         self.exit_requested = True
+        self.root.withdraw()
         self.service.stop()
-        self.service.wait(timeout=SERVICE_STOP_WAIT)
+        self._wait_for_service_stop(EXIT_WAIT_CEILING_MS, self._finish_exit)
+
+    def _finish_exit(self):
         if self.tray_icon is not None:
             self.tray_icon.stop()
         self.root.destroy()

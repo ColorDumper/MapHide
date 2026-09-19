@@ -27,6 +27,7 @@ from maphide.overlay import (
     scene_is_stale,
     scene_status,
     seed_key_edge_tracking,
+    stop_wait_should_continue,
     sync_scene,
 )
 from maphide.state import HIDE, SHOW, OverlayState, decide
@@ -584,3 +585,51 @@ def test_a_press_while_the_active_scenes_item_id_is_unknown_does_not_block_the_l
     sync_scene(client, scene_items, scene_synced, "SceneB", state.overlay_visible)
 
     assert client.calls[-1] == _scene_call("SceneB", 7, True)
+
+
+# --- stop_wait_should_continue -------------------------------------------------
+#
+# The cutoff both the GUI exit path (ui.py) and headless Ctrl+C (map_hider.py)
+# use to decide when it's safe to stop waiting on a MapHideService to
+# actually finish stopping. Pure on purpose: the bug this guards against was
+# a single fixed wait that could give up on a slow, multi-scene shutdown
+# cleanup before it finished - real elapsed time must never be the reason to
+# stop waiting on its own, only is_running actually going False (or a
+# ceiling meant as a backstop, not a normal-case budget) can be.
+
+CEILING = 15_000
+
+
+def test_keeps_waiting_while_running_and_under_the_ceiling():
+    assert stop_wait_should_continue(True, 0, CEILING) is True
+    assert stop_wait_should_continue(True, CEILING - 1, CEILING) is True
+
+
+def test_stops_the_instant_the_service_reports_not_running():
+    assert stop_wait_should_continue(False, 0, CEILING) is False
+    assert stop_wait_should_continue(False, CEILING * 10, CEILING) is False
+
+
+def test_a_slow_multi_scene_cleanup_is_no_longer_cut_short():
+    # What the old fixed-wait constants (1.5s in the GUI, 2s headless) would
+    # have gotten wrong: still genuinely running well past either of those,
+    # but comfortably inside the new ceiling.
+    still_running_at_3_seconds = True
+    assert stop_wait_should_continue(still_running_at_3_seconds, 3_000, CEILING) is True
+
+
+def test_stops_once_the_ceiling_is_reached_even_if_still_running():
+    # The backstop: quitting (GUI or headless) must still eventually finish
+    # even if something someday blocks past its own timeouts.
+    assert stop_wait_should_continue(True, CEILING, CEILING) is False
+    assert stop_wait_should_continue(True, CEILING + 1, CEILING) is False
+
+
+def test_no_ceiling_means_wait_indefinitely_while_running():
+    # The GUI's restart path (ceiling_ms=None): the app keeps running either
+    # way, so there's no reason to ever give up on the old worker's cleanup.
+    assert stop_wait_should_continue(True, 10**9, None) is True
+
+
+def test_no_ceiling_still_stops_once_not_running():
+    assert stop_wait_should_continue(False, 10**9, None) is False

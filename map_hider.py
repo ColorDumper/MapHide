@@ -22,12 +22,17 @@ import queue
 import sys
 
 from maphide.config import default_config, load_config
-from maphide.overlay import MapHideService
+from maphide.overlay import MapHideService, stop_wait_should_continue
 from maphide.paths import CONFIG_PATH
 from maphide.single_instance import acquire as acquire_single_instance
 
 EVENT_POLL_SECONDS = 0.5
-SHUTDOWN_WAIT_SECONDS = 2
+SHUTDOWN_POLL_SECONDS = 0.25
+# A backstop, not a normal-case budget - see stop_wait_should_continue. The
+# worker's own shutdown cleanup can legitimately take a moment (one OBS
+# request per scene carrying the overlay source), so Ctrl+C polls for it to
+# actually finish rather than giving up on a single fixed wait.
+SHUTDOWN_WAIT_CEILING_SECONDS = 15
 ALREADY_RUNNING_MESSAGE = "MapHide is already running."
 ALREADY_RUNNING_NOTICE_MUTEX = "Local\\MapHide-AlreadyRunningNotice"
 # Distinct from the main window's title ("MapHide") so FindWindowW below can
@@ -40,6 +45,18 @@ MB_ICONWARNING = 0x30
 _show_message_box = ctypes.windll.user32.MessageBoxW
 _find_window = ctypes.windll.user32.FindWindowW
 _set_foreground_window = ctypes.windll.user32.SetForegroundWindow
+
+
+def _wait_for_service_stop(service, ceiling_ms, poll_seconds=SHUTDOWN_POLL_SECONDS):
+    """Block until the worker actually reports stopped, or a generous
+    ceiling is reached - see maphide.overlay.stop_wait_should_continue.
+    Rejoins the worker thread in short increments rather than a single fixed
+    wait, so Ctrl+C can't cut a slow, multi-scene shutdown cleanup short.
+    """
+    elapsed_ms = 0.0
+    while stop_wait_should_continue(service.is_running, elapsed_ms, ceiling_ms):
+        service.wait(timeout=poll_seconds)
+        elapsed_ms += poll_seconds * 1000
 
 
 def run_headless():
@@ -81,7 +98,7 @@ def run_headless():
     except KeyboardInterrupt:
         print("\nExiting - stopping service...")
         service.stop()
-        service.wait(timeout=SHUTDOWN_WAIT_SECONDS)
+        _wait_for_service_stop(service, SHUTDOWN_WAIT_CEILING_SECONDS * 1000)
 
 
 def run_selftest():

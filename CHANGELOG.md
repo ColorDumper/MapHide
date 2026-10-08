@@ -28,6 +28,12 @@ All notable changes to MapHide are documented here.
   ones, when OBS simply isn't open yet instead of giving up.
 - Fixed a deleted or renamed OBS scene sometimes disconnecting MapHide
   entirely instead of just being dropped from what it tracks.
+- Fixed MapHide still behaving as if the overlay source existed after the only
+  scene containing it was deleted or renamed in OBS.
+- Fixed the live status line going on saying "Connected to OBS." for up to a
+  second after the connection actually dropped.
+- The history log no longer says "Overlay shown." or "Overlay hidden." when
+  your current scene doesn't contain the source, since nothing changes there.
 - MapHide now notices if you add the overlay source to your current scene,
   without needing to switch away and back.
 - Hotkey toggles stay fast and flicker-free with many OBS scenes: each

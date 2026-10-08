@@ -407,12 +407,20 @@ class MapHideService:
                     # live=False on both: how often the map itself gets toggled has
                     # nothing to do with what the live status is saying about the
                     # OBS connection, and toggling it should never interrupt that.
+                    # Logged only when the active scene actually carries the source -
+                    # sync_scene silently no-ops otherwise (the source may still be
+                    # kept in sync in a different scene, in the background below),
+                    # and a log line claiming something happened on the scene you're
+                    # watching, when nothing did, is worse than saying nothing.
+                    active_scene_has_source = scene_items.get(active_scene_name) is not None
                     if action == SHOW:
                         sync_scene(client, scene_items, scene_synced, active_scene_name, True)
-                        self._emit("overlay", "Overlay shown.", live=False)
+                        if active_scene_has_source:
+                            self._emit("overlay", "Overlay shown.", live=False)
                     elif action == HIDE:
                         sync_scene(client, scene_items, scene_synced, active_scene_name, False)
-                        self._emit("overlay", "Overlay hidden.", live=False)
+                        if active_scene_has_source:
+                            self._emit("overlay", "Overlay hidden.", live=False)
 
                     # One other scene, at most, catches up per poll - the active scene
                     # already got its own write above, so this never costs more than a
@@ -423,6 +431,12 @@ class MapHideService:
                         client, scene_items, scene_synced, active_scene_name, state.overlay_visible
                     )
                     if dropped_scene is not None:
+                        # scene_items just lost an entry - overlay_available may no
+                        # longer hold, the same recalculation done above whenever
+                        # scene_items changes (scene switch, source found mid-scene).
+                        overlay_available = any(
+                            found is not None for found in scene_items.values()
+                        )
                         self._emit(
                             "status",
                             f"Scene '{dropped_scene}' is no longer available in OBS.",
@@ -436,10 +450,11 @@ class MapHideService:
                     # False here, since reaching this handler at all means a prior
                     # connect succeeded and reset it - this is a fresh drop, not a
                     # continuation of some already-recorded streak.
-                    # live=False: the reconnect attempt right behind it is about to
-                    # take over the live status anyway, so this only needs to be
-                    # logged, not shown live for the instant before that happens.
-                    self._emit("error", error_message, live=False)
+                    # Shown live immediately: the reconnect attempt right behind it
+                    # doesn't report anything of its own until its first tick, up to
+                    # RECONNECT_TICK later - the live status must not go on saying
+                    # "Connected to OBS." for that whole stretch.
+                    self._emit("error", error_message)
                     failure_in_history = True
                     disconnect_obs(client)
                     client = None

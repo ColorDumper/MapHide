@@ -18,7 +18,7 @@ from obsws_python.error import OBSSDKRequestError
 import maphide.overlay as overlay_module
 from maphide import logs
 from maphide.config import AppConfig
-from maphide.obs import ObsAuthError
+from maphide.obs import ObsAuthError, ObsConnectionError
 from maphide.overlay import (
     MapHideService,
     catch_up_one_stale_scene,
@@ -60,6 +60,9 @@ class RecordingClient:
         self.calls.append((req_type, payload))
         return {}
 
+    def disconnect(self):
+        pass
+
 
 class SceneItemLookupClient:
     """Like RecordingClient, but GetSceneItemList returns a configured
@@ -93,6 +96,77 @@ class FailingSceneClient:
         ):
             raise OBSSDKRequestError("SetSceneItemEnabled", 600, "scene item not found")
         return {}
+
+
+class SceneBGetsDroppedClient:
+    """A two-scene OBS: SceneA (the active one) never carries the source.
+    SceneB does, but every write to it is rejected - as if OBS had just had
+    that scene deleted or renamed out from under it."""
+
+    def __init__(self):
+        self.calls = []
+
+    def send(self, req_type, payload=None, raw=True):
+        self.calls.append((req_type, payload))
+        if req_type == "GetCurrentProgramScene":
+            return {"currentProgramSceneName": "SceneA"}
+        if req_type == "GetSceneList":
+            return {"scenes": [{"sceneName": "SceneA"}, {"sceneName": "SceneB"}]}
+        if req_type == "GetSceneItemList":
+            if payload["sceneName"] == "SceneB":
+                return {"sceneItems": [{"sourceName": "Overlay", "sceneItemId": 9}]}
+            return {"sceneItems": []}
+        if req_type == "SetSceneItemEnabled" and payload["sceneItemId"] == 9:
+            raise OBSSDKRequestError("SetSceneItemEnabled", 600, "scene item not found")
+        return {}
+
+    def disconnect(self):
+        pass
+
+
+class ActiveSceneMissingSourceClient:
+    """A two-scene OBS: SceneA (the active one) never carries the source.
+    SceneB does, and every write to it succeeds - the ordinary "source lives
+    in a scene you aren't currently on" case, not a rejected write."""
+
+    def __init__(self):
+        self.calls = []
+
+    def send(self, req_type, payload=None, raw=True):
+        self.calls.append((req_type, payload))
+        if req_type == "GetCurrentProgramScene":
+            return {"currentProgramSceneName": "SceneA"}
+        if req_type == "GetSceneList":
+            return {"scenes": [{"sceneName": "SceneA"}, {"sceneName": "SceneB"}]}
+        if req_type == "GetSceneItemList":
+            if payload["sceneName"] == "SceneB":
+                return {"sceneItems": [{"sourceName": "Overlay", "sceneItemId": 9}]}
+            return {"sceneItems": []}
+        return {}
+
+    def disconnect(self):
+        pass
+
+
+class SingleSceneWithSourceClient:
+    """One scene, which carries the source - the ordinary case, where the
+    source exists right where you're standing."""
+
+    def __init__(self):
+        self.calls = []
+
+    def send(self, req_type, payload=None, raw=True):
+        self.calls.append((req_type, payload))
+        if req_type == "GetCurrentProgramScene":
+            return {"currentProgramSceneName": "Gameplay"}
+        if req_type == "GetSceneList":
+            return {"scenes": [{"sceneName": "Gameplay"}]}
+        if req_type == "GetSceneItemList":
+            return {"sceneItems": [{"sourceName": "Overlay", "sceneItemId": 1}]}
+        return {}
+
+    def disconnect(self):
+        pass
 
 
 def _scene_call(scene_name, scene_item_id, enabled):
@@ -229,6 +303,156 @@ def test_the_active_config_is_logged_at_startup_without_the_password_or_address(
     assert "hotkey=M" in contents
     assert "10.0.0.2" not in contents
     assert "super secret" not in contents
+
+
+def test_a_mid_session_drop_updates_the_live_status_immediately(monkeypatch):
+    # Regression: the live status line must reflect a lost OBS connection
+    # right away. Emitting the drop with live=False and leaving the reconnect
+    # countdown to say so instead means the live line can go on showing
+    # "Connected to OBS." for up to a full RECONNECT_TICK after the link has
+    # actually died.
+    connect_attempts = []
+
+    def fake_connect(host, port, password):
+        connect_attempts.append(1)
+        if len(connect_attempts) == 1:
+            return RecordingClient()
+        # Give up on the retry so _run reaches "stopped" without a real wait.
+        raise ObsAuthError("bad password")
+
+    monkeypatch.setattr(overlay_module, "connect_obs", fake_connect)
+
+    def failing_get_current_scene(client):
+        raise ObsConnectionError("The connection to OBS was lost.")
+
+    monkeypatch.setattr(overlay_module, "get_current_scene", failing_get_current_scene)
+    # Not what's under test here (see the _wait_with_countdown tests) - kept
+    # tiny so a real reconnect attempt doesn't slow this test down.
+    monkeypatch.setattr(overlay_module, "RECONNECT_TICK", 0.001)
+    monkeypatch.setattr(overlay_module, "RECONNECT_DELAY", 0.001)
+
+    service = MapHideService()
+    service._running = True
+    service._run(hold_config())
+
+    events = []
+    while not service.events.empty():
+        events.append(service.events.get_nowait())
+
+    drop_event = next(e for e in events if e["kind"] == "error" and "lost" in e["message"])
+    assert drop_event["live"] is True
+
+
+def test_overlay_available_does_not_go_stale_once_the_only_carrying_scene_is_dropped(
+    monkeypatch,
+):
+    # Regression: catch_up_one_stale_scene can drop the one background scene
+    # that actually carries the source (a rejected write - the scene was
+    # deleted/renamed in OBS). If overlay_available isn't recomputed
+    # afterward, MapHide keeps treating the overlay as available and can log
+    # "Overlay shown."/"Overlay hidden." even though no scene left in
+    # scene_items carries the source - nothing was actually written to OBS.
+    client = SceneBGetsDroppedClient()
+    monkeypatch.setattr(overlay_module, "connect_obs", lambda host, port, password: client)
+
+    service = MapHideService()
+    service._running = True
+    poll_calls = {"n": 0}
+
+    def fake_poll_hotkey(vk_codes):
+        poll_calls["n"] += 1
+        # Call 1 is the connect-time seed; call 2 is the first main-loop
+        # iteration, while SceneB (the only scene carrying the source) still
+        # exists - keep the key up so the drop happens with nothing pressed.
+        # From call 3 on, the key is held, to see whether a SHOW still fires
+        # once nothing left in scene_items actually carries the source.
+        down = poll_calls["n"] >= 3
+        if poll_calls["n"] >= 8:
+            service._stop_event.set()  # stop after a few more iterations either way
+        return down, down
+
+    monkeypatch.setattr(overlay_module, "poll_hotkey", fake_poll_hotkey)
+
+    service._run(hold_config())
+
+    events = []
+    while not service.events.empty():
+        events.append(service.events.get_nowait())
+
+    assert any("no longer available" in e["message"] for e in events), (
+        "test setup sanity: SceneB should have been dropped before the key was held"
+    )
+    assert [e for e in events if e["kind"] == "overlay"] == [], (
+        "MapHide logged an overlay action after the only scene carrying the "
+        "source was dropped - overlay_available was not recomputed"
+    )
+
+
+def test_no_overlay_event_is_logged_when_the_active_scene_has_nothing_to_write_to(
+    monkeypatch,
+):
+    # Regression: overlay_available can be True from a source that only
+    # exists in a *different* scene - correctly, since sync_scene keeps that
+    # background scene caught up. But sync_scene silently no-ops for the
+    # active scene when it has nothing to write to, so logging "Overlay
+    # shown."/"Overlay hidden." here is misleading: nothing changed on the
+    # scene actually being watched.
+    client = ActiveSceneMissingSourceClient()
+    monkeypatch.setattr(overlay_module, "connect_obs", lambda host, port, password: client)
+
+    service = MapHideService()
+    service._running = True
+    poll_calls = {"n": 0}
+
+    def fake_poll_hotkey(vk_codes):
+        poll_calls["n"] += 1
+        # Call 1 is the connect-time seed; call 2 is the first main-loop
+        # iteration. From call 3 on, the key is held.
+        down = poll_calls["n"] >= 3
+        if poll_calls["n"] >= 6:
+            service._stop_event.set()
+        return down, down
+
+    monkeypatch.setattr(overlay_module, "poll_hotkey", fake_poll_hotkey)
+
+    service._run(hold_config())
+
+    events = []
+    while not service.events.empty():
+        events.append(service.events.get_nowait())
+
+    assert [e for e in events if e["kind"] == "overlay"] == []
+
+
+def test_an_overlay_event_is_still_logged_when_the_active_scene_has_the_source(
+    monkeypatch,
+):
+    # Regression guard for the fix above: the ordinary case - the active
+    # scene really does carry the source - must keep its log line. Only the
+    # "nothing to write to" case should go quiet.
+    client = SingleSceneWithSourceClient()
+    monkeypatch.setattr(overlay_module, "connect_obs", lambda host, port, password: client)
+
+    service = MapHideService()
+    service._running = True
+    poll_calls = {"n": 0}
+
+    def fake_poll_hotkey(vk_codes):
+        poll_calls["n"] += 1
+        down = poll_calls["n"] >= 3
+        if poll_calls["n"] >= 6:
+            service._stop_event.set()
+        return down, down
+
+    monkeypatch.setattr(overlay_module, "poll_hotkey", fake_poll_hotkey)
+
+    service._run(hold_config())
+
+    events = []
+    while not service.events.empty():
+        events.append(service.events.get_nowait())
+
+    assert [e["message"] for e in events if e["kind"] == "overlay"] == ["Overlay shown."]
 
 
 # --- seed_key_edge_tracking ---------------------------------------------------

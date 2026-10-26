@@ -14,6 +14,7 @@ from .obs import (
     OBS_OVERLAY_MAY_REMAIN,
     ObsAuthError,
     ObsConnectionError,
+    ObsRequestRefused,
     ObsUnreachableError,
     connect_obs,
     disconnect_obs,
@@ -89,13 +90,15 @@ def catch_up_one_stale_scene(client, scene_items, scene_synced, exclude, target_
     scene itself (or the source's place in it) most likely no longer
     exists: drop it from scene_items and handle that locally, rather than
     letting one stale background scene look like the whole connection died.
+    A write that fails any other way - a timeout, a dropped link - is not a
+    verdict on the scene, and propagates as the connection failure it is.
     Returns the name of a scene dropped this way, or None."""
     stale_scene = find_stale_scene(scene_items, scene_synced, exclude, target_visible)
     if stale_scene is None:
         return None
     try:
         sync_scene(client, scene_items, scene_synced, stale_scene, target_visible)
-    except ObsConnectionError:
+    except ObsRequestRefused:
         del scene_items[stale_scene]
         scene_synced.pop(stale_scene, None)
         return stale_scene

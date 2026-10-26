@@ -267,6 +267,7 @@ class Session:
         self._gen = None
         self._wait = None
         self._failure = None
+        self._finished = False
         self._ticks = 0
         self._show_code = cfg.show_vk_codes()[0]
         self._started = time.monotonic()
@@ -315,6 +316,8 @@ class Session:
         self.drain()
         if self._failure is not None:
             raise AssertionError(self._failure)
+        if scenario is not None and not self._finished:
+            raise AssertionError("The worker stopped before the scenario finished.")
         return self.events
 
     def _connect_obs(self, host, port, password):
@@ -360,6 +363,7 @@ class Session:
             try:
                 self._wait = next(self._gen)
             except StopIteration:
+                self._finished = True
                 self._stop_with()
                 return
             except AssertionError as exc:

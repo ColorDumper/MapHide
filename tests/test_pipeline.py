@@ -7,6 +7,7 @@ what the user was told. See fake_obs.py for the harness.
 
 from datetime import timedelta
 
+import pytest
 from fake_obs import FakeObs, Session, SteppableWallClock, make_config
 from obsws_python.error import OBSSDKTimeoutError
 
@@ -186,6 +187,59 @@ def test_a_deleted_background_scene_is_dropped_without_reconnecting(monkeypatch)
     session.run(scenario)
 
     assert obs.connections == 1
+
+
+# --- an OBS that answers badly or not at all ----------------------------------
+
+
+def test_a_timeout_writing_to_a_background_scene_reconnects_instead_of_dropping_it(monkeypatch):
+    # A write that times out says nothing about the scene - the link may be
+    # unusable, and a late reply could be mistaken for the next answer - so it
+    # has to go through the normal reconnect, not be treated as a deleted scene.
+    obs = standard_obs()
+    obs.rule(
+        "SetSceneItemEnabled",
+        raises=OBSSDKTimeoutError("timed out"),
+        when=lambda payload: payload["sceneName"] == "Camera" and payload["sceneItemEnabled"],
+    )
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.connections == 2, "the lost link to be reconnected")
+        yield s.until(
+            lambda: obs.enabled_scenes() == {"Gameplay", "Camera"}, "both scenes to show again"
+        )
+
+    session.run(scenario)
+
+    assert not any("no longer available" in m for m in session.messages("status"))
+
+
+@pytest.mark.parametrize(
+    ("request_type", "rule"),
+    [
+        ("GetCurrentProgramScene", {"returns": None}),
+        ("GetSceneList", {"returns": None}),
+        ("GetSceneItemList", {"raises": KeyError("requestStatus")}),
+        ("GetCurrentProgramScene", {"raises": TypeError("unexpected frame")}),
+    ],
+)
+def test_an_unreadable_reply_reconnects_instead_of_stopping(monkeypatch, request_type, rule):
+    obs = standard_obs()
+    obs.rule(request_type, **rule)
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield s.until(lambda: obs.connections == 2, "a reconnect after the unreadable reply")
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+
+    session.run(scenario)
+
+    assert any("could not read" in m for m in session.messages("error"))
 
 
 # --- timing must not depend on the wall clock ---------------------------------

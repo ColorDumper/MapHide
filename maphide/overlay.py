@@ -8,7 +8,13 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 
 from .hotkeys import poll_hotkey
-from .logs import configure_logging, logger
+from .logs import (
+    configure_logging,
+    describe_cause,
+    describe_exception,
+    logger,
+    plain_reason,
+)
 from .obs import (
     CONNECT_TIMEOUT,
     OBS_OVERLAY_MAY_REMAIN,
@@ -209,14 +215,18 @@ class MapHideService:
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
-    def _emit(self, kind, message, history=True, live=True):
-        # The debug log always gets everything, either flag or not - that is
-        # what it is for. `history` decides whether the in-app history list
-        # also keeps this one; `live` decides whether it updates the live
-        # status line. The two are independent: an overlay shown/hidden event
-        # belongs in the history list but must not interrupt whatever the
-        # live status is currently saying about the OBS connection itself.
-        logger.log(logging.ERROR if kind == "error" else logging.INFO, "%s: %s", kind, message)
+    def _emit(self, kind, message, history=True, live=True, log=True, detail=None):
+        # The debug log gets everything unless `log` is False, which is for
+        # repeats that would only crowd out the lines worth reading; `detail`
+        # is extra for the debug log alone, never shown in the window.
+        # `history` decides whether the in-app history list also keeps this
+        # one; `live` decides whether it updates the live status line. The
+        # two are independent: an overlay shown/hidden event belongs in the
+        # history list but must not interrupt whatever the live status is
+        # currently saying about the OBS connection itself.
+        if log:
+            text = f"{message} ({detail})" if detail else message
+            logger.log(logging.ERROR if kind == "error" else logging.INFO, "%s: %s", kind, text)
         self._events.put(
             {
                 "kind": kind,
@@ -243,14 +253,14 @@ class MapHideService:
             if self._stop_event.wait(step):
                 return
             elapsed += step
-            self._emit("status", f"Reconnecting... {elapsed:g}s", history=False)
+            self._emit("status", f"Reconnecting... {elapsed:g}s", history=False, log=False)
 
     def _run(self, cfg):
         try:
             log_start_error = configure_logging(cfg.log_enabled)
         except Exception as exc:
             # A log that cannot start must never keep the worker from starting.
-            log_start_error = str(exc)
+            log_start_error = plain_reason(exc)
         if log_start_error is not None:
             self._emit(
                 "status",
@@ -277,6 +287,7 @@ class MapHideService:
         # entry, separately from the live status (which shows every attempt).
         # Resets on a successful connect, so the next streak gets its own.
         failure_in_history = False
+        failed_attempts = 0
         final_status_message = "MapHide stopped."
         had_successful_connection = False
 
@@ -309,6 +320,9 @@ class MapHideService:
                         failure_in_history = False
                         had_successful_connection = True
                         self._emit("status", "Connected to OBS.")
+                        if failed_attempts:
+                            logger.info("Connected after %d failed attempts.", failed_attempts)
+                        failed_attempts = 0
                     except ObsConnectionError as exc:
                         error_message = str(exc)
                         # A wrong password will not start working on its own. An
@@ -328,9 +342,18 @@ class MapHideService:
                         )
                         # Shown live on every single attempt - a retry that is still
                         # failing should keep saying so, not go quiet after the first
-                        # time. Only the history entry is limited to one per streak.
-                        self._emit("error", error_message, history=not failure_in_history)
+                        # time. Only the history entry and the debug log line are
+                        # limited to one per streak; the log gets a count of the
+                        # attempts when the streak ends.
+                        self._emit(
+                            "error",
+                            error_message,
+                            history=not failure_in_history,
+                            log=not failure_in_history,
+                            detail=describe_cause(exc),
+                        )
                         failure_in_history = True
+                        failed_attempts += 1
                         if give_up:
                             final_status_message = error_message
                             break
@@ -352,6 +375,11 @@ class MapHideService:
                             scene_items = find_overlay_scene_items(client, cfg.scene_item_name)
                             overlay_available = any(
                                 found is not None for found in scene_items.values()
+                            )
+                            logger.info(
+                                "Scenes read: %d, carrying the source: %d",
+                                len(scene_items),
+                                sum(found is not None for found in scene_items.values()),
                             )
                             # live=False: a scene change is worth a history line, but it
                             # is not part of the OBS connection's own story, and must
@@ -432,10 +460,14 @@ class MapHideService:
                         sync_scene(client, scene_items, scene_synced, active_scene_name, True)
                         if active_scene_has_source:
                             self._emit("overlay", "Overlay shown.", live=False)
+                        else:
+                            logger.info("Show requested, but the active scene has no source.")
                     elif action == HIDE:
                         sync_scene(client, scene_items, scene_synced, active_scene_name, False)
                         if active_scene_has_source:
                             self._emit("overlay", "Overlay hidden.", live=False)
+                        else:
+                            logger.info("Hide requested, but the active scene has no source.")
 
                     # One other scene, at most, catches up per poll - the active scene
                     # already got its own write above, so this never costs more than a
@@ -469,7 +501,7 @@ class MapHideService:
                     # doesn't report anything of its own until its first tick, up to
                     # RECONNECT_TICK later - the live status must not go on saying
                     # "Connected to OBS." for that whole stretch.
-                    self._emit("error", error_message)
+                    self._emit("error", error_message, detail=describe_cause(exc))
                     failure_in_history = True
                     disconnect_obs(client)
                     client = None
@@ -490,24 +522,31 @@ class MapHideService:
             # OBS, which the clauses above already handle. Report it instead of letting
             # the worker thread die without a word; the block below still clears the
             # overlay either way.
-            final_status_message = f"MapHide stopped after an unexpected error: {exc}"
+            logger.error("Unexpected error: %s", describe_exception(exc))
+            final_status_message = (
+                f"MapHide stopped after an unexpected error ({type(exc).__name__})."
+            )
         finally:
             # Nothing in this block may stop the "stopped" report below from
             # happening: the window waits on it before it lets you start again.
             if client is not None and scene_items:
                 try:
                     set_overlay_enabled(client, scene_items, active_scene_name, False)
-                except Exception:
+                except Exception as exc:
                     # Most likely the link died before the overlay could be
                     # cleared, so it may still be on screen. Say so rather than
                     # stopping quietly - whatever the cause.
-                    logger.exception("Could not hide the overlay while stopping")
+                    logger.error(
+                        "Could not hide the overlay while stopping: %s", describe_exception(exc)
+                    )
                     final_status_message = OBS_OVERLAY_MAY_REMAIN
             if client is not None:
                 try:
                     disconnect_obs(client)
-                except Exception:
-                    logger.exception("Could not close the OBS connection cleanly")
+                except Exception as exc:
+                    logger.error(
+                        "Could not close the OBS connection cleanly: %s", describe_exception(exc)
+                    )
 
             # Emitted before the flag flips, not after: ui.py's restart polling
             # waits for is_running to go False before starting the replacement

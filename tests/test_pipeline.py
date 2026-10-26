@@ -5,13 +5,37 @@ lose the connection, delete the source - and check what ended up in OBS and
 what the user was told. See fake_obs.py for the harness.
 """
 
+import logging
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from fake_obs import FakeObs, Session, SteppableWallClock, make_config
 from obsws_python.error import OBSSDKTimeoutError
 
 import maphide.overlay as overlay_module
+from maphide import logs
+from maphide.obs import ObsUnreachableError
+
+
+class _Lines(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.lines = []
+
+    def emit(self, record):
+        self.lines.append(record.getMessage())
+
+
+@pytest.fixture
+def debug_log():
+    """The lines the worker writes to the debug log, collected in memory."""
+    handler = _Lines()
+    logs.logger.addHandler(handler)
+    logs.logger.setLevel(logging.INFO)
+    yield handler.lines
+    logs.logger.removeHandler(handler)
+    logs.logger.setLevel(logging.CRITICAL)
 
 
 def standard_obs():
@@ -240,6 +264,81 @@ def test_an_unreadable_reply_reconnects_instead_of_stopping(monkeypatch, request
     session.run(scenario)
 
     assert any("could not read" in m for m in session.messages("error"))
+
+
+# --- what the debug log records ----------------------------------------------
+
+
+def test_a_dropped_connection_logs_the_kind_of_failure_behind_it(monkeypatch, debug_log):
+    obs = standard_obs()
+    obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield s.until(lambda: obs.connections == 2, "a reconnect")
+
+    session.run(scenario)
+
+    assert any("OBSSDKTimeoutError" in line for line in debug_log)
+    # The window keeps its plain wording.
+    assert not any("OBSSDKTimeoutError" in m for m in session.messages())
+
+
+def test_an_unexpected_error_is_logged_with_where_it_happened(monkeypatch, debug_log):
+    home = str(Path.home())
+
+    def broken(*args, **kwargs):
+        raise RuntimeError(f"boom in {home}\\somewhere")
+
+    monkeypatch.setattr(overlay_module, "decide", broken)
+    session = Session(monkeypatch, make_config(), standard_obs())
+
+    session.run()
+
+    detail = next(line for line in debug_log if "RuntimeError" in line)
+    assert "boom" in detail
+    assert "overlay.py:_run:" in detail
+    # Nothing in the file may carry the user's folder name.
+    assert not any(home.lower() in line.lower() for line in debug_log)
+    # The window names the kind of error and nothing more.
+    stopped = next(e["message"] for e in session.events if e["kind"] == "stopped")
+    assert "RuntimeError" in stopped
+    assert "boom" not in stopped
+
+
+def test_a_press_with_nowhere_to_write_is_noted_in_the_debug_log(monkeypatch, debug_log):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        obs.switch_to("Chatting")
+        yield s.until(lambda: s.saw("Switched to scene: Chatting"), "the switch to be noticed")
+        s.keyboard.hold("G")
+        yield s.until(
+            lambda: any("no source" in line for line in debug_log), "the press to be noted"
+        )
+
+    session.run(scenario)
+
+    assert any("carrying the source" in line for line in debug_log)
+
+
+def test_a_long_outage_adds_one_line_to_the_debug_log_not_one_per_retry(monkeypatch, debug_log):
+    unreachable = ObsUnreachableError("Failed to connect to OBS. Make sure OBS is open.")
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), [unreachable, unreachable, unreachable, obs])
+
+    def scenario(s):
+        yield s.ticks(1)
+
+    session.run(scenario)
+
+    assert sum("Failed to connect" in line for line in debug_log) == 1
+    assert not any("Reconnecting" in line for line in debug_log)
+    assert any("3 failed attempts" in line for line in debug_log)
+    # The window still reports every attempt.
+    assert len(session.messages("error")) == 3
 
 
 # --- timing must not depend on the wall clock ---------------------------------

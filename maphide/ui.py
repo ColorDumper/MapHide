@@ -43,6 +43,7 @@ from .hotkeys import (
     is_valid_show_hotkey,
     normalize_event_key,
 )
+from .logs import plain_reason
 from .overlay import MapHideService, human_ts, stop_wait_should_continue
 from .paths import (
     APP_NAME,
@@ -762,7 +763,7 @@ class MapHideApp:
             self.status_var.set(str(exc))
             return
         except OSError as exc:
-            self._show_error("Could not save config", str(exc))
+            self._show_error("Could not save config", plain_reason(exc))
             return
         self._apply_config(cfg, "Config saved.")
 
@@ -796,7 +797,10 @@ class MapHideApp:
         except ValueError as exc:
             self.status_var.set(str(exc))
             return
-        except (OSError, RuntimeError) as exc:
+        except OSError as exc:
+            self._show_error("Could not start MapHide", plain_reason(exc))
+            return
+        except RuntimeError as exc:
             self._show_error("Could not start MapHide", str(exc))
             return
 

@@ -1,6 +1,7 @@
 """Tests for the opt-in rotating file log."""
 
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -96,6 +97,56 @@ def test_enabled_reports_an_error_when_the_file_cannot_be_opened(log_dir, monkey
     assert "Permission denied" in error
     assert logs.logger.handlers == []
     assert logs.logger.level == logging.CRITICAL
+
+
+def test_a_start_failure_names_the_reason_but_not_the_file(log_dir, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise PermissionError(
+            13, "Permission denied", r"C:\Users\someone\AppData\Roaming\MapHide\maphide-debug.log"
+        )
+
+    monkeypatch.setattr(logs, "RotatingFileHandler", refuse)
+
+    error = logs.configure_logging(True)
+
+    assert error == "Permission denied"
+
+
+def test_plain_reason_prefers_the_systems_own_wording():
+    error = OSError(13, "Permission denied", r"C:\Users\someone\config.json")
+    assert logs.plain_reason(error) == "Permission denied"
+
+
+def test_plain_reason_does_not_repeat_unknown_text():
+    assert logs.plain_reason(ValueError(r"C:\Users\someone\x")) == "an unexpected error occurred"
+    assert logs.plain_reason(OSError("no code")) == "an unexpected error occurred"
+
+
+def _raise_with_home_in_message():
+    raise KeyError(f"missing under {Path.home()}\\Documents")
+
+
+def test_describe_exception_gives_type_message_and_place_without_the_home_folder():
+    try:
+        _raise_with_home_in_message()
+    except KeyError as exc:
+        text = logs.describe_exception(exc)
+
+    assert "KeyError" in text
+    assert "missing under ~" in text
+    assert "test_logs.py:_raise_with_home_in_message:" in text
+    assert str(Path.home()).lower() not in text.lower()
+
+
+def test_describe_cause_names_the_underlying_failure_and_its_code():
+    try:
+        try:
+            raise ConnectionResetError(10054, "reset by peer, host 10.0.0.2")
+        except OSError as inner:
+            raise RuntimeError("outer") from inner
+    except RuntimeError as exc:
+        assert logs.describe_cause(exc) == "ConnectionResetError (code 10054)"
+    assert logs.describe_cause(RuntimeError("no cause")) is None
 
 
 def test_a_previous_log_that_cannot_be_rolled_aside_is_reported_not_raised(log_dir, monkeypatch):

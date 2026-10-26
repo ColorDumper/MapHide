@@ -494,9 +494,8 @@ def test_no_overlay_event_is_logged_when_the_active_scene_has_nothing_to_write_t
 def test_an_overlay_event_is_still_logged_when_the_active_scene_has_the_source(
     monkeypatch,
 ):
-    # Regression guard for the fix above: the ordinary case - the active
-    # scene really does carry the source - must keep its log line. Only the
-    # "nothing to write to" case should go quiet.
+    # The ordinary case - the active scene really does carry the source -
+    # must keep its log line. Only the "nothing to write to" case goes quiet.
     client = SingleSceneWithSourceClient()
     monkeypatch.setattr(overlay_module, "connect_obs", lambda host, port, password: client)
 
@@ -626,8 +625,7 @@ def test_sync_scene_does_not_mark_a_scene_synced_when_its_item_id_is_unknown():
     # A scene whose source hasn't been detected there yet (scene_items maps
     # it to None) has nothing to write to. Marking it "synced" anyway would
     # make scene_is_stale wrongly report it as already correct once the
-    # source is later found there, permanently skipping the write it needs -
-    # found via manual testing of the recheck_missing_source feature above.
+    # source is later found there, permanently skipping the write it needs.
     client = RecordingClient()
     scene_items = {"SceneA": 1, "SceneB": None}
     scene_synced = {}
@@ -668,7 +666,7 @@ def test_catch_up_one_stale_scene_drops_a_scene_whose_write_is_rejected():
     # A deleted or renamed scene's cached item ID goes stale - OBS rejects
     # the write, and this must be handled locally (drop the scene from
     # tracking) rather than letting the failure propagate and look like the
-    # whole connection died, which is what happened before this existed.
+    # whole connection died.
     client = FailingSceneClient(fails_for_scene_item_id=2)
     scene_items = {"Gameplay": 1, "Deleted Scene": 2}
     scene_synced = {}
@@ -846,12 +844,12 @@ def test_source_added_to_the_active_scene_is_picked_up_without_a_switch():
 
 
 def test_a_press_while_the_active_scenes_item_id_is_unknown_does_not_block_the_later_correction():
-    # Regression for a real bug found via manual testing: overlay_available
-    # can already be True because the source exists in a *different* scene,
-    # so a press while on a scene whose item_id isn't known yet still fires
-    # a SHOW/HIDE action and calls sync_scene - which used to mark that
-    # scene "synced" anyway even though nothing was written, permanently
-    # blocking the real write once the source was later found there too.
+    # overlay_available can already be True because the source exists in a
+    # *different* scene, so a press while on a scene whose item_id isn't
+    # known yet still fires a SHOW/HIDE action and calls sync_scene. That
+    # must not mark the scene "synced" when nothing was written - doing so
+    # would permanently block the real write once the source is later found
+    # there too.
     cfg = hold_config(hide_delay_ms=0)
     scene_items = {"SceneA": 1, "SceneB": None}
     scene_synced = {}
@@ -870,8 +868,8 @@ def test_a_press_while_the_active_scenes_item_id_is_unknown_does_not_block_the_l
     found = recheck_missing_source(client, scene_items, "SceneB", cfg.scene_item_name)
     assert found is True
 
-    # SceneB must still be considered stale - the earlier "sync" never
-    # actually wrote anything, so this is the first real chance to.
+    # SceneB must still be considered stale - the sync above wrote nothing,
+    # so this is the first real chance to.
     assert scene_is_stale(scene_items, scene_synced, "SceneB", state.overlay_visible) is True
     sync_scene(client, scene_items, scene_synced, "SceneB", state.overlay_visible)
 
@@ -882,11 +880,11 @@ def test_a_press_while_the_active_scenes_item_id_is_unknown_does_not_block_the_l
 #
 # The cutoff both the GUI exit path (ui.py) and headless Ctrl+C (map_hider.py)
 # use to decide when it's safe to stop waiting on a MapHideService to
-# actually finish stopping. Pure on purpose: the bug this guards against was
-# a single fixed wait that could give up on a slow, multi-scene shutdown
-# cleanup before it finished - real elapsed time must never be the reason to
-# stop waiting on its own, only is_running actually going False (or a
-# ceiling meant as a backstop, not a normal-case budget) can be.
+# actually finish stopping. Pure on purpose: a single fixed wait could give
+# up on a slow, multi-scene shutdown cleanup before it finished, so real
+# elapsed time must never be the reason to stop waiting on its own - only
+# is_running going False (or a ceiling meant as a backstop, not a
+# normal-case budget) can be.
 
 CEILING = 15_000
 
@@ -901,10 +899,9 @@ def test_stops_the_instant_the_service_reports_not_running():
     assert stop_wait_should_continue(False, CEILING * 10, CEILING) is False
 
 
-def test_a_slow_multi_scene_cleanup_is_no_longer_cut_short():
-    # What the old fixed-wait constants (1.5s in the GUI, 2s headless) would
-    # have gotten wrong: still genuinely running well past either of those,
-    # but comfortably inside the new ceiling.
+def test_a_slow_multi_scene_cleanup_is_not_cut_short():
+    # Still genuinely running after a few seconds, but comfortably inside the
+    # ceiling: it must be waited out.
     still_running_at_3_seconds = True
     assert stop_wait_should_continue(still_running_at_3_seconds, 3_000, CEILING) is True
 

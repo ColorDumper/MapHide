@@ -53,7 +53,7 @@ def decide(
     re-asserts them roughly every 30ms for as long as a key is held, even
     though it never actually releases in between, so they are ignored
     whenever the down-state comparison can already speak for itself. A
-    caller that never passes them keeps today's behaviour exactly.
+    caller that never passes them gets the down-state comparison alone.
     """
     desired_visible = state.desired_visible
     previous_desired = desired_visible

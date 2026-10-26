@@ -48,6 +48,8 @@ MapHide keeps keybind support intentionally simple for reliability.
 
 The hide key supports `Esc` and `Shift + letter` because some games use one key to open the map and a different key or shortcut to close it. In toggle mode, setting the show key and hide key to the same key makes each press flip the overlay on or off.
 
+MapHide reads your keys no matter which window is in focus, so your show and hide keys also trigger it while you are typing in game chat, Discord, or a browser. Keep that in mind when choosing them.
+
 ## Anti-cheat
 
 MapHide only **reads** global key state through a standard Windows API — the same mechanism many streaming and macro tools use to check whether a key is held. It does not inject keystrokes, hook into the game, read or write game memory, or touch any game files.
@@ -84,7 +86,7 @@ On the **streaming PC**:
 
 1. In OBS, create or add the source you want MapHide to control.
 2. Name the source something easy to type exactly, such as `MapHide Overlay`.
-3. Add that same source name to every scene where you want MapHide to work.
+3. Add that same source name to every scene where you want MapHide to work. Add it directly to each scene: a source placed inside a group, or shown through a nested scene, won't be found.
 4. Make sure the source can cover the map area correctly.
 
 If you need overlay assets, you can create your own or use community-made overlays. One useful source is [Sendox on YouTube](https://www.youtube.com/@sendox).
@@ -221,6 +223,7 @@ Check that:
 - The source name matches exactly
 - The source exists in the active OBS scene
 - The source exists in every scene you want MapHide to follow
+- The source sits directly in each scene, not inside a group or a nested scene
 - You entered the source name from OBS on the streaming PC
 - The correct keybind mode is selected
 - The keybind was saved after changing it

@@ -44,6 +44,15 @@ All notable changes to MapHide are documented here.
   staying silent.
 - Reworked the in-app history log, fixed the live status line flickering,
   tidied up window sizing, and brought back the footer watermark.
+- Fixed MapHide's timing relying on the computer's clock, so a clock
+  correction or the daylight-saving change could stop the overlay hiding or
+  stop scene changes being noticed for up to an hour.
+- Fixed Start and Stop getting stuck if something went wrong while MapHide
+  was hiding the overlay on the way out. It now always finishes stopping, and
+  warns you if the overlay may still be showing in OBS.
+- Fixed MapHide failing to start if the previous debug log was open in another
+  program. It now starts normally and tells you the debug log couldn't be
+  started.
 - Further internal cleanup, with no other change to how MapHide works.
 
 ## v0.2.5 - 2026-09-05

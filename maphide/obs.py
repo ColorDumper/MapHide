@@ -33,7 +33,7 @@ OBS_UNREACHABLE = (
 OBS_SETTINGS_WRONG = (
     "Failed to connect to OBS. Check that OBS is open and your connection settings are correct."
 )
-OBS_LINK_LOST = "The connection to OBS was lost. Reconnect after OBS is available again."
+OBS_LINK_LOST = "The connection to OBS was lost."
 OBS_READ_REFUSED = "OBS returned an error while reading the current scene."
 OBS_WRITE_REFUSED = "OBS returned an error while updating the overlay source."
 OBS_BAD_REPLY = "OBS sent a reply MapHide could not read."

@@ -312,14 +312,17 @@ class Session:
 
     # --- running -------------------------------------------------------------
 
-    def run(self, scenario=None):
+    def run(self, scenario=None, *, worker_ends_first=False):
+        """Run to the end of the scenario. A worker that stops before the
+        scenario does is a failure unless the scenario is waiting for exactly
+        that (`worker_ends_first`)."""
         self._gen = scenario(self) if scenario is not None else None
         self.service._running = True
         self.service._run(self.cfg)
         self.drain()
         if self._failure is not None:
             raise AssertionError(self._failure)
-        if scenario is not None and not self._finished:
+        if scenario is not None and not self._finished and not worker_ends_first:
             raise AssertionError("The worker stopped before the scenario finished.")
         return self.events
 

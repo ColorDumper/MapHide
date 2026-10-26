@@ -15,7 +15,7 @@ from obsws_python.error import OBSSDKTimeoutError
 
 import maphide.overlay as overlay_module
 from maphide import logs
-from maphide.obs import ObsAuthError, ObsUnreachableError
+from maphide.obs import OBS_OVERLAY_MAY_REMAIN, ObsAuthError, ObsUnreachableError
 from maphide.overlay import CONNECTED, CONNECTING, RECONNECTING, STOPPED
 
 
@@ -302,6 +302,85 @@ def test_a_wrong_password_ends_with_the_reason_as_the_final_status(monkeypatch):
     session.run()
 
     assert session.service.status.state == STOPPED
+    assert session.service.status.message == str(refused)
+
+
+def test_a_drop_while_the_overlay_is_shown_says_it_may_still_be_showing(monkeypatch):
+    obs = standard_obs()
+    unreachable = ObsUnreachableError("Failed to connect to OBS. Make sure OBS is open.")
+    session = Session(monkeypatch, make_config(), [obs, unreachable, obs])
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.until(lambda: len(s.status_at_connect) == 3, "the retry to succeed")
+        yield s.until(lambda: s.service.status.state == CONNECTED, "reconnected")
+
+    session.run(scenario)
+
+    _first, after_drop, after_failed_retry = session.status_at_connect
+    assert "may still be showing" in after_drop.message
+    assert "may still be showing" in after_failed_retry.message
+    # One plain sentence in the history. What happens to the overlay on
+    # reconnect depends on the mode and the keys, so nothing is promised.
+    in_history = [
+        e["message"] for e in session.events if e["history"] and "may still be" in e["message"]
+    ]
+    assert in_history == ["The overlay may still be showing in OBS."]
+
+
+def test_a_drop_with_the_overlay_hidden_has_no_such_warning_and_it_does_not_linger(
+    monkeypatch,
+):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), [obs, obs, obs])
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.until(lambda: len(s.status_at_connect) == 2, "the first reconnect")
+        yield s.until(lambda: s.service.status.state == CONNECTED, "reconnected")
+        s.keyboard.release("G")
+        yield s.until(lambda: obs.enabled_scenes() == set(), "every scene to be hidden")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.until(lambda: len(s.status_at_connect) == 3, "the second reconnect")
+
+    session.run(scenario)
+
+    _first, after_first_drop, after_second_drop = session.status_at_connect
+    assert "may still be showing" in after_first_drop.message
+    assert "may still be showing" not in after_second_drop.message
+
+
+def test_with_auto_reconnect_off_a_drop_while_shown_ends_with_the_overlay_warning(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(auto_reconnect=False), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.pause(5.0)
+
+    session.run(scenario, worker_ends_first=True)
+
+    assert session.service.status.state == STOPPED
+    assert session.service.status.message == OBS_OVERLAY_MAY_REMAIN
+
+
+def test_a_final_error_that_is_already_in_the_history_is_not_added_again(monkeypatch):
+    refused = ObsAuthError("Failed to connect to OBS. The password appears to be incorrect.")
+    session = Session(monkeypatch, make_config(), [refused])
+
+    session.run()
+
+    history = [e["message"] for e in session.events if e["history"]]
+    assert history.count(str(refused)) == 1
     assert session.service.status.message == str(refused)
 
 

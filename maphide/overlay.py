@@ -45,6 +45,10 @@ MISSING_SOURCE_RECHECK_INTERVAL = 3.0
 RECONNECT_DELAY = CONNECT_TIMEOUT
 RECONNECT_TICK = 1.0
 
+# Said while the link is down with the overlay last told to show: OBS keeps
+# whatever it was last given, so nothing here can hide it until reconnected.
+OVERLAY_MAY_REMAIN_NOTE = "The overlay may still be showing in OBS."
+
 # Where the service stands, as a status line shows it.
 IDLE = "idle"
 CONNECTING = "connecting"
@@ -276,7 +280,7 @@ class MapHideService:
             }
         )
 
-    def _wait_with_countdown(self, total_seconds):
+    def _wait_with_countdown(self, total_seconds, note=None):
         """Wait up to total_seconds, interruptible, with a status-only
         tick each second - so a long retry reads as "still trying" instead of
         looking stuck on whatever it last said, and the count reaches the
@@ -292,13 +296,10 @@ class MapHideService:
             if self._stop_event.wait(step):
                 return
             elapsed += step
-            self._emit(
-                "status",
-                f"Reconnecting... {elapsed:g}s",
-                history=False,
-                log=False,
-                state=RECONNECTING,
-            )
+            message = f"Reconnecting... {elapsed:g}s"
+            if note:
+                message += f". {note}"
+            self._emit("status", message, history=False, log=False, state=RECONNECTING)
 
     def _run(self, cfg):
         try:
@@ -329,6 +330,11 @@ class MapHideService:
         # Resets on a successful connect, so the next streak gets its own.
         failure_in_history = False
         failed_attempts = 0
+        # Set while the link is down and the overlay was last told to show.
+        overlay_may_remain = False
+        # The last error that went into the history, so a final "stopped"
+        # that only repeats it is not added a second time.
+        last_history_error = None
         final_status_message = "MapHide stopped."
         had_successful_connection = False
 
@@ -359,6 +365,7 @@ class MapHideService:
                         # not evaporate because nothing changed key-wise since.
                         state = seed_key_edge_tracking(state, cfg, show_vk_codes, hide_vk_codes)
                         failure_in_history = False
+                        overlay_may_remain = False
                         had_successful_connection = True
                         self._emit("status", "Connected to OBS.", state=CONNECTED)
                         if failed_attempts:
@@ -396,12 +403,17 @@ class MapHideService:
                             detail=describe_cause(exc),
                             state=None if give_up else RECONNECTING,
                         )
+                        if not failure_in_history:
+                            last_history_error = error_message
                         failure_in_history = True
                         failed_attempts += 1
                         if give_up:
                             final_status_message = error_message
                             break
-                        self._wait_with_countdown(RECONNECT_DELAY)
+                        self._wait_with_countdown(
+                            RECONNECT_DELAY,
+                            OVERLAY_MAY_REMAIN_NOTE if overlay_may_remain else None,
+                        )
                         continue
 
                 now = monotonic_now()
@@ -549,7 +561,14 @@ class MapHideService:
                         detail=describe_cause(exc),
                         state=RECONNECTING if cfg.auto_reconnect else None,
                     )
+                    last_history_error = error_message
                     failure_in_history = True
+                    # What OBS was last told is all that is known about what it
+                    # is showing, and a told-to-show overlay stays up until
+                    # something can tell it otherwise.
+                    overlay_may_remain = state.overlay_visible
+                    if overlay_may_remain:
+                        self._emit("status", OVERLAY_MAY_REMAIN_NOTE)
                     disconnect_obs(client)
                     client = None
                     # desired_visible, overlay_visible, and hide_requested_at deliberately
@@ -561,9 +580,13 @@ class MapHideService:
                     scene_synced = {}
                     state = seed_key_edge_tracking(state, cfg, show_vk_codes, hide_vk_codes)
                     if not cfg.auto_reconnect:
-                        final_status_message = error_message
+                        final_status_message = (
+                            OBS_OVERLAY_MAY_REMAIN if overlay_may_remain else error_message
+                        )
                         break
-                    self._wait_with_countdown(RECONNECT_DELAY)
+                    self._wait_with_countdown(
+                        RECONNECT_DELAY, OVERLAY_MAY_REMAIN_NOTE if overlay_may_remain else None
+                    )
         except Exception as exc:
             # Anything reaching here is a fault in MapHide rather than in the link to
             # OBS, which the clauses above already handle. Report it instead of letting
@@ -602,6 +625,11 @@ class MapHideService:
             # events could land ahead of this one, and a stale "stopped" line
             # would end up in the history after theirs.
             try:
-                self._emit("stopped", final_status_message, state=STOPPED)
+                self._emit(
+                    "stopped",
+                    final_status_message,
+                    history=final_status_message != last_history_error,
+                    state=STOPPED,
+                )
             finally:
                 self._running = False

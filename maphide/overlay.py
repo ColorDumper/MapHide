@@ -141,6 +141,14 @@ def human_ts():
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
 
+def monotonic_now():
+    """The time every timer in the worker is measured against: a datetime-shaped
+    reading of the monotonic clock, so a clock correction or a daylight-saving
+    change can never make an interval negative or stretch it by an hour. Only
+    differences between two readings mean anything; for display use human_ts."""
+    return datetime.min + timedelta(seconds=time.monotonic())
+
+
 def stop_wait_should_continue(is_running, elapsed_ms, ceiling_ms):
     """Whether a poll loop waiting on a MapHideService to stop should keep
     going. Used by both the GUI (ui.py) and headless (map_hider.py) shutdown
@@ -235,7 +243,11 @@ class MapHideService:
             self._emit("status", f"Reconnecting... {elapsed:g}s", history=False)
 
     def _run(self, cfg):
-        log_start_error = configure_logging(cfg.log_enabled)
+        try:
+            log_start_error = configure_logging(cfg.log_enabled)
+        except Exception as exc:
+            # A log that cannot start must never keep the worker from starting.
+            log_start_error = str(exc)
         if log_start_error is not None:
             self._emit(
                 "status",
@@ -322,7 +334,7 @@ class MapHideService:
                         self._wait_with_countdown(RECONNECT_DELAY)
                         continue
 
-                now = datetime.now()
+                now = monotonic_now()
                 try:
                     if (now - last_scene_refresh) >= timedelta(seconds=SCENE_REFRESH_INTERVAL):
                         latest_scene_name = get_current_scene(client)
@@ -477,15 +489,22 @@ class MapHideService:
             # overlay either way.
             final_status_message = f"MapHide stopped after an unexpected error: {exc}"
         finally:
+            # Nothing in this block may stop the "stopped" report below from
+            # happening: the window waits on it before it lets you start again.
             if client is not None and scene_items:
                 try:
                     set_overlay_enabled(client, scene_items, active_scene_name, False)
-                except ObsConnectionError:
-                    # The link died before the overlay could be cleared, so it may
-                    # still be on screen. Say so rather than stopping quietly.
+                except Exception:
+                    # Most likely the link died before the overlay could be
+                    # cleared, so it may still be on screen. Say so rather than
+                    # stopping quietly - whatever the cause.
+                    logger.exception("Could not hide the overlay while stopping")
                     final_status_message = OBS_OVERLAY_MAY_REMAIN
             if client is not None:
-                disconnect_obs(client)
+                try:
+                    disconnect_obs(client)
+                except Exception:
+                    logger.exception("Could not close the OBS connection cleanly")
 
             # Emitted before the flag flips, not after: ui.py's restart polling
             # waits for is_running to go False before starting the replacement
@@ -493,5 +512,7 @@ class MapHideService:
             # has already reached the queue - otherwise the new worker's own
             # events could land ahead of this one, and a stale "stopped" would
             # overwrite a live status that had already moved on.
-            self._emit("stopped", final_status_message)
-            self._running = False
+            try:
+                self._emit("stopped", final_status_message)
+            finally:
+                self._running = False

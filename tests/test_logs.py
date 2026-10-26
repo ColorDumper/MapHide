@@ -96,3 +96,25 @@ def test_enabled_reports_an_error_when_the_file_cannot_be_opened(log_dir, monkey
     assert "Permission denied" in error
     assert logs.logger.handlers == []
     assert logs.logger.level == logging.CRITICAL
+
+
+def test_a_previous_log_that_cannot_be_rolled_aside_is_reported_not_raised(log_dir, monkeypatch):
+    # The previous session's log can be held open by another program, which
+    # makes setting the new one aside fail. That is the same "could not start
+    # the log" case as not being able to open the file, not a crash.
+    log_file = log_dir / "maphide-debug.log"
+    log_file.write_text("previous session\n", encoding="utf-8")
+
+    def locked(self):
+        raise PermissionError(13, "The process cannot access the file")
+
+    monkeypatch.setattr(logs.RotatingFileHandler, "doRollover", locked)
+
+    error = logs.configure_logging(True)
+
+    assert error is not None
+    assert "cannot access" in error
+    assert logs.logger.handlers == []
+    assert logs.logger.level == logging.CRITICAL
+    # A handle left open would stop Windows deleting the file.
+    log_file.unlink()

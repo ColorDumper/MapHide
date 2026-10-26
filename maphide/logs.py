@@ -64,9 +64,17 @@ def configure_logging(enabled):
     # Roll once per app launch, not per worker start: a Save Settings restarts the
     # worker mid-session and should keep writing to the same file.
     if not _rolled_this_process:
+        try:
+            if LOG_PATH.exists() and LOG_PATH.stat().st_size > 0:
+                handler.doRollover()
+        except OSError as exc:
+            # The previous log can be held open by another program. Same
+            # outcome as not being able to open the file at all, and the
+            # handler must not be left holding it.
+            handler.close()
+            logger.setLevel(logging.CRITICAL)
+            return str(exc)
         _rolled_this_process = True
-        if LOG_PATH.exists() and LOG_PATH.stat().st_size > 0:
-            handler.doRollover()
 
     handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s"))
     logger.addHandler(handler)

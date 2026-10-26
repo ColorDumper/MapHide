@@ -58,6 +58,13 @@ All notable changes to MapHide are documented here.
 - Fixed a slow or timed-out OBS request being reported as a scene having been
   removed. It's now treated as the lost connection it is, and MapHide
   reconnects.
+- The debug log is more useful when something goes wrong: it now records what
+  kind of failure caused a disconnect and where an unexpected error happened,
+  and a long stretch with OBS closed adds one line instead of filling the log
+  with retries.
+- Error messages in the window no longer include file paths, so a screenshot
+  of MapHide doesn't show your Windows user name. The debug log hides your
+  user folder too.
 - Further internal cleanup, with no other change to how MapHide works.
 
 ## v0.2.5 - 2026-09-05

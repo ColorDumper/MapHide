@@ -76,6 +76,9 @@ All notable changes to MapHide are documented here.
 - The history log no longer shows the same error twice when MapHide gives up,
   and the "connection lost" message no longer asks you to reconnect when
   MapHide is already doing it for you.
+- Fixed MapHide failing to open, with no message, if the settings file held an
+  empty or invalid value (such as a blank port). It now opens with default
+  settings instead.
 - Further internal cleanup, with no other change to how MapHide works.
 
 ## v0.2.5 - 2026-09-05

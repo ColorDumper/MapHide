@@ -23,6 +23,18 @@ def _clamp(value, low, high):
     return max(low, min(high, value))
 
 
+def _whole_number(value, name):
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"Config value {name} must be a number.") from exc
+
+
+def _flag(data, key, default):
+    value = data.get(key)
+    return default if value is None else bool(value)
+
+
 @dataclass
 class AppConfig:
     host: str
@@ -39,28 +51,37 @@ class AppConfig:
 
     @classmethod
     def from_dict(cls, data):
+        if not isinstance(data, dict):
+            raise ValueError("The config file must hold a JSON object.")
         required = ("host", "port", "password", "scene_item_name")
         for key in required:
             if key not in data:
                 raise KeyError(f"Missing required config key: {key}")
+        for key in ("host", "scene_item_name"):
+            if data[key] is None:
+                raise ValueError(f"Config value {key} must not be empty.")
         hotkey = str(data.get("hotkey", "G")).upper()
         hide_hotkey = str(data.get("hide_hotkey", "H")).upper()
+        password = data["password"]
+        hide_delay = data.get("hide_delay_ms")
         return cls(
             host=str(data["host"]).strip(),
-            port=_clamp(int(data["port"]), MIN_PORT, MAX_PORT),
-            password=str(data.get("password", "")),
+            port=_clamp(_whole_number(data["port"], "port"), MIN_PORT, MAX_PORT),
+            password="" if password is None else str(password),
             scene_item_name=str(data["scene_item_name"]).strip(),
-            auto_connect=bool(data.get("auto_connect", False)),
-            auto_reconnect=bool(data.get("auto_reconnect", True)),
+            auto_connect=_flag(data, "auto_connect", False),
+            auto_reconnect=_flag(data, "auto_reconnect", True),
             hotkey=hotkey if is_valid_show_hotkey(hotkey) else "G",
-            toggle_mode=bool(data.get("toggle_mode", False)),
+            toggle_mode=_flag(data, "toggle_mode", False),
             hide_hotkey=hide_hotkey if is_valid_hide_hotkey(hide_hotkey) else "H",
             hide_delay_ms=_clamp(
-                int(data.get("hide_delay_ms", DEFAULT_HIDE_DELAY_MS)),
+                DEFAULT_HIDE_DELAY_MS
+                if hide_delay is None
+                else _whole_number(hide_delay, "hide_delay_ms"),
                 MIN_HIDE_DELAY_MS,
                 MAX_HIDE_DELAY_MS,
             ),
-            log_enabled=bool(data.get("log_enabled", False)),
+            log_enabled=_flag(data, "log_enabled", False),
         )
 
     def to_dict(self):

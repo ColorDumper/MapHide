@@ -70,6 +70,12 @@ All notable changes to MapHide are documented here.
   selected") appear below the log for a few seconds instead of replacing it,
   so a leftover message can no longer sit there while the connection says
   something different.
+- If the connection to OBS drops while the overlay is showing, MapHide now
+  tells you the overlay may still be showing in OBS until it reconnects (or
+  tells you to check OBS if it stops without reconnecting).
+- The history log no longer shows the same error twice when MapHide gives up,
+  and the "connection lost" message no longer asks you to reconnect when
+  MapHide is already doing it for you.
 - Further internal cleanup, with no other change to how MapHide works.
 
 ## v0.2.5 - 2026-09-05

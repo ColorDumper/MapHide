@@ -53,6 +53,11 @@ All notable changes to MapHide are documented here.
 - Fixed MapHide failing to start if the previous debug log was open in another
   program. It now starts normally and tells you the debug log couldn't be
   started.
+- Fixed MapHide stopping for good if OBS sent back a reply it couldn't read.
+  It now reconnects and carries on.
+- Fixed a slow or timed-out OBS request being reported as a scene having been
+  removed. It's now treated as the lost connection it is, and MapHide
+  reconnects.
 - Further internal cleanup, with no other change to how MapHide works.
 
 ## v0.2.5 - 2026-09-05

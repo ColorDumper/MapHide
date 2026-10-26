@@ -65,6 +65,11 @@ All notable changes to MapHide are documented here.
 - Error messages in the window no longer include file paths, so a screenshot
   of MapHide doesn't show your Windows user name. The debug log hides your
   user folder too.
+- The status line now always shows the real state of the OBS connection.
+  Hints and warnings (such as key hints, "OBS Host is required.", or "Key
+  selected") appear below the log for a few seconds instead of replacing it,
+  so a leftover message can no longer sit there while the connection says
+  something different.
 - Further internal cleanup, with no other change to how MapHide works.
 
 ## v0.2.5 - 2026-09-05

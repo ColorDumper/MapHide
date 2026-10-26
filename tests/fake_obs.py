@@ -263,6 +263,9 @@ class Session:
         self.service = MapHideService()
         self.keyboard = FakeKeyboard()
         self.events = []
+        # The status the service showed at the moment of each connection
+        # attempt, which is when nothing else is running to look at it.
+        self.status_at_connect = []
         self._connect = connect
         self._gen = None
         self._wait = None
@@ -321,6 +324,7 @@ class Session:
         return self.events
 
     def _connect_obs(self, host, port, password):
+        self.status_at_connect.append(self.service.status)
         target = self._connect
         if isinstance(target, FakeObs):
             client = target

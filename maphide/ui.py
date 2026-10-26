@@ -94,6 +94,13 @@ COLOR_DISABLED = "#5a6472"
 COLOR_WARNING = "#e6b450"
 
 
+def status_line(status, restart_pending):
+    """What the status line says: the service's own wording, except while a
+    settings change is restarting it - the stop and start in between are not
+    worth showing."""
+    return "Applying settings..." if restart_pending else status.message
+
+
 def set_windows_app_id():
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
 
@@ -135,6 +142,7 @@ class MapHideApp:
         self.auto_reconnect_var = tk.BooleanVar(value=True)
         self.log_enabled_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle")
+        self._shown_status = "Idle"
         self.history_lines = []
         self.help_text_var = tk.StringVar(
             value="Hold G to show the overlay. Release G to hide it."
@@ -804,12 +812,12 @@ class MapHideApp:
             self._show_error("Could not start MapHide", str(exc))
             return
 
-        self.status_var.set("Starting...")
+        self._render_status()
         self._sync_service_buttons()
 
     def stop_service(self):
         self.service.stop()
-        self.status_var.set("Stopping...")
+        self._render_status()
 
     def _restart_service_with_config(self, cfg):
         self.pending_restart_config = cfg
@@ -831,6 +839,7 @@ class MapHideApp:
             self.service.start(cfg)
         except RuntimeError as exc:
             self.status_var.set(str(exc))
+        self._render_status()
         self._sync_service_buttons()
 
     def _wait_for_service_stop(self, ceiling_ms, on_stopped, elapsed_ms=0):
@@ -864,6 +873,15 @@ class MapHideApp:
             if str(button.cget("state")) != state:
                 button.configure(state=state)
 
+    def _render_status(self):
+        # Drawn from where the service stands now, not from replaying events,
+        # so a late or stale event can never leave the line saying something
+        # the connection no longer is.
+        text = status_line(self.service.status, self.restart_pending)
+        if text != self._shown_status:
+            self._shown_status = text
+            self.status_var.set(text)
+
     def _drain_events(self):
         while True:
             try:
@@ -871,16 +889,10 @@ class MapHideApp:
             except queue.Empty:
                 break
 
-            # A save-triggered restart stops the old worker before starting a new
-            # one; that stop always emits a live "stopped" event, but it is not a
-            # real stop from the user's point of view and would otherwise flash
-            # over the live status for the moment before the new connection
-            # comes up. The history line is still worth keeping either way.
-            if event["live"] and not self.restart_pending:
-                self.status_var.set(event["message"])
             if event["history"]:
                 self._add_history_line(event["timestamp"], event["message"])
 
+        self._render_status()
         self._sync_service_buttons()
         self.root.after(EVENT_DRAIN_INTERVAL_MS, self._drain_events)
 

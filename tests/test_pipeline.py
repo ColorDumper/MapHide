@@ -15,7 +15,8 @@ from obsws_python.error import OBSSDKTimeoutError
 
 import maphide.overlay as overlay_module
 from maphide import logs
-from maphide.obs import ObsUnreachableError
+from maphide.obs import ObsAuthError, ObsUnreachableError
+from maphide.overlay import CONNECTED, CONNECTING, RECONNECTING, STOPPED
 
 
 class _Lines(logging.Handler):
@@ -264,6 +265,60 @@ def test_an_unreadable_reply_reconnects_instead_of_stopping(monkeypatch, request
     session.run(scenario)
 
     assert any("could not read" in m for m in session.messages("error"))
+
+
+# --- what the status line is told ---------------------------------------------
+
+
+def test_the_status_follows_the_connection_through_a_drop_and_a_failed_retry(monkeypatch):
+    obs = standard_obs()
+    unreachable = ObsUnreachableError("Failed to connect to OBS. Make sure OBS is open.")
+    session = Session(monkeypatch, make_config(), [obs, unreachable, obs])
+
+    def scenario(s):
+        yield s.until(lambda: s.service.status.state == CONNECTED, "the first connection")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.until(lambda: len(s.status_at_connect) == 3, "the retry to succeed")
+        yield s.until(lambda: s.service.status.state == CONNECTED, "reconnected")
+
+    session.run(scenario)
+
+    first, after_drop, after_failed_retry = session.status_at_connect
+    assert first.state == CONNECTING
+    # By the next attempt the countdown has taken over from the failure text;
+    # the state is what matters, and it never reads as connected in between.
+    assert after_drop.state == RECONNECTING
+    assert "Reconnecting" in after_drop.message
+    assert after_failed_retry.state == RECONNECTING
+    assert "Reconnecting" in after_failed_retry.message
+    assert session.service.status.state == STOPPED
+    assert session.service.status.message == "MapHide stopped."
+
+
+def test_a_wrong_password_ends_with_the_reason_as_the_final_status(monkeypatch):
+    refused = ObsAuthError("Failed to connect to OBS. The password appears to be incorrect.")
+    session = Session(monkeypatch, make_config(), [refused])
+
+    session.run()
+
+    assert session.service.status.state == STOPPED
+    assert session.service.status.message == str(refused)
+
+
+def test_scene_changes_and_overlay_events_leave_the_status_alone(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        before = s.service.status
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.switch_to("Camera")
+        yield s.until(lambda: s.saw("Switched to scene: Camera"), "the switch to be noticed")
+        assert s.service.status == before
+
+    session.run(scenario)
 
 
 # --- what the debug log records ----------------------------------------------

@@ -195,6 +195,66 @@ def test_emit_includes_the_event_kind():
     assert event["kind"] == "status"
 
 
+def test_a_new_service_reads_as_idle():
+    status = MapHideService().status
+
+    assert (status.state, status.message) == (overlay_module.IDLE, "Idle")
+
+
+def test_stopping_a_service_that_is_not_running_changes_nothing():
+    service = MapHideService()
+
+    service.stop()
+
+    assert service.status.state == overlay_module.IDLE
+
+
+def test_a_running_service_reads_as_stopping_until_it_has_stopped():
+    service = MapHideService()
+    service._running = True
+
+    service.stop()
+    assert service.status.state == overlay_module.STOPPING
+
+    # A late event from the worker cannot undo it...
+    service._set_status(overlay_module.CONNECTED, "Connected to OBS.")
+    assert service.status.state == overlay_module.STOPPING
+
+    # ...only the stop finishing can.
+    service._set_status(overlay_module.STOPPED, "MapHide stopped.")
+    assert service.status.state == overlay_module.STOPPED
+
+
+def test_a_stop_after_the_worker_has_finished_is_not_shown_as_stopping():
+    service = MapHideService()
+    service._running = True
+    service._set_status(overlay_module.STOPPED, "MapHide stopped.")
+
+    service.stop()
+
+    assert service.status.state == overlay_module.STOPPED
+
+
+def test_starting_reads_as_starting_before_the_worker_has_done_anything(monkeypatch):
+    service = MapHideService()
+    monkeypatch.setattr(service, "_run", lambda cfg: None)
+
+    service.start(hold_config())
+
+    status = service.status
+    assert (status.state, status.message) == (overlay_module.CONNECTING, "Starting...")
+
+
+def test_starting_again_clears_a_previous_stop(monkeypatch):
+    service = MapHideService()
+    monkeypatch.setattr(service, "_run", lambda cfg: None)
+    service._set_status(overlay_module.STOPPING, "Stopping...")
+
+    service.start(hold_config())
+
+    assert service.status.state == overlay_module.CONNECTING
+
+
 def test_stopped_is_queued_before_running_flips_false(monkeypatch):
     # ui.py's _finish_service_restart polls is_running to know when it is
     # safe to start the replacement worker after a Save Settings restart. If
@@ -305,12 +365,11 @@ def test_the_active_config_is_logged_at_startup_without_the_password_or_address(
     assert "super secret" not in contents
 
 
-def test_a_mid_session_drop_updates_the_live_status_immediately(monkeypatch):
-    # Regression: the live status line must reflect a lost OBS connection
-    # right away. Emitting the drop with live=False and leaving the reconnect
-    # countdown to say so instead means the live line can go on showing
-    # "Connected to OBS." for up to a full RECONNECT_TICK after the link has
-    # actually died.
+def test_a_mid_session_drop_updates_the_status_immediately(monkeypatch):
+    # Regression: the status line must reflect a lost OBS connection right
+    # away. Leaving the reconnect countdown to say so instead means the line
+    # can go on showing "Connected to OBS." for up to a full RECONNECT_TICK
+    # after the link has actually died.
     connect_attempts = []
 
     def fake_connect(host, port, password):
@@ -333,14 +392,22 @@ def test_a_mid_session_drop_updates_the_live_status_immediately(monkeypatch):
 
     service = MapHideService()
     service._running = True
+    status_after_each_event = []
+    original_emit = service._emit
+
+    def spying_emit(kind, message, **kwargs):
+        original_emit(kind, message, **kwargs)
+        status_after_each_event.append((message, service.status))
+
+    monkeypatch.setattr(service, "_emit", spying_emit)
+
     service._run(hold_config())
 
-    events = []
-    while not service.events.empty():
-        events.append(service.events.get_nowait())
-
-    drop_event = next(e for e in events if e["kind"] == "error" and "lost" in e["message"])
-    assert drop_event["live"] is True
+    status_after_drop = next(
+        status for message, status in status_after_each_event if "lost" in message
+    )
+    assert status_after_drop.state == overlay_module.RECONNECTING
+    assert "lost" in status_after_drop.message
 
 
 def test_overlay_available_does_not_go_stale_once_the_only_carrying_scene_is_dropped(

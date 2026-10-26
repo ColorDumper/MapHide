@@ -3,5 +3,5 @@
 obsws-python==1.8.0
 # Pulled in by obsws-python; MapHide names its error types directly.
 websocket-client==1.9.2
-Pillow==12.3.0
+Pillow==13.0.0
 pystray==0.19.5

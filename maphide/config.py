@@ -12,6 +12,9 @@ from .hotkeys import (
 )
 from .paths import CONFIG_PATH, LEGACY_CONFIG_PATH
 
+DEFAULT_PORT = 4455
+DEFAULT_HOTKEY = "G"
+DEFAULT_HIDE_HOTKEY = "H"
 DEFAULT_HIDE_DELAY_MS = 120
 MIN_HIDE_DELAY_MS = 0
 MAX_HIDE_DELAY_MS = 400
@@ -19,7 +22,7 @@ MIN_PORT = 1
 MAX_PORT = 65535
 
 
-def _clamp(value, low, high):
+def clamp(value, low, high):
     return max(low, min(high, value))
 
 
@@ -43,9 +46,9 @@ class AppConfig:
     scene_item_name: str
     auto_connect: bool = False
     auto_reconnect: bool = True
-    hotkey: str = "G"
+    hotkey: str = DEFAULT_HOTKEY
     toggle_mode: bool = False
-    hide_hotkey: str = "H"
+    hide_hotkey: str = DEFAULT_HIDE_HOTKEY
     hide_delay_ms: int = DEFAULT_HIDE_DELAY_MS
     log_enabled: bool = False
 
@@ -60,21 +63,23 @@ class AppConfig:
         for key in ("host", "scene_item_name"):
             if data[key] is None:
                 raise ValueError(f"Config value {key} must not be empty.")
-        hotkey = str(data.get("hotkey", "G")).upper()
-        hide_hotkey = str(data.get("hide_hotkey", "H")).upper()
+        hotkey = str(data.get("hotkey", DEFAULT_HOTKEY)).upper()
+        hide_hotkey = str(data.get("hide_hotkey", DEFAULT_HIDE_HOTKEY)).upper()
         password = data["password"]
         hide_delay = data.get("hide_delay_ms")
         return cls(
             host=str(data["host"]).strip(),
-            port=_clamp(_whole_number(data["port"], "port"), MIN_PORT, MAX_PORT),
+            port=clamp(_whole_number(data["port"], "port"), MIN_PORT, MAX_PORT),
             password="" if password is None else str(password),
             scene_item_name=str(data["scene_item_name"]).strip(),
             auto_connect=_flag(data, "auto_connect", False),
             auto_reconnect=_flag(data, "auto_reconnect", True),
-            hotkey=hotkey if is_valid_show_hotkey(hotkey) else "G",
+            hotkey=hotkey if is_valid_show_hotkey(hotkey) else DEFAULT_HOTKEY,
             toggle_mode=_flag(data, "toggle_mode", False),
-            hide_hotkey=hide_hotkey if is_valid_hide_hotkey(hide_hotkey) else "H",
-            hide_delay_ms=_clamp(
+            hide_hotkey=(
+                hide_hotkey if is_valid_hide_hotkey(hide_hotkey) else DEFAULT_HIDE_HOTKEY
+            ),
+            hide_delay_ms=clamp(
                 DEFAULT_HIDE_DELAY_MS
                 if hide_delay is None
                 else _whole_number(hide_delay, "hide_delay_ms"),
@@ -108,26 +113,14 @@ class AppConfig:
         return {key: value for key, value in self.to_dict().items() if key not in excluded}
 
     def show_vk_codes(self):
-        return hotkey_to_vk_codes(self.hotkey, fallback=[HOTKEY_TO_VK["G"]])
+        return hotkey_to_vk_codes(self.hotkey, fallback=[HOTKEY_TO_VK[DEFAULT_HOTKEY]])
 
     def hide_vk_codes(self):
-        return hotkey_to_vk_codes(self.hide_hotkey, fallback=[HOTKEY_TO_VK["H"]])
+        return hotkey_to_vk_codes(self.hide_hotkey, fallback=[HOTKEY_TO_VK[DEFAULT_HIDE_HOTKEY]])
 
 
 def default_config():
-    return AppConfig(
-        host="",
-        port=4455,
-        password="",
-        scene_item_name="",
-        auto_connect=False,
-        auto_reconnect=True,
-        hotkey="G",
-        toggle_mode=False,
-        hide_hotkey="H",
-        hide_delay_ms=DEFAULT_HIDE_DELAY_MS,
-        log_enabled=False,
-    )
+    return AppConfig(host="", port=DEFAULT_PORT, password="", scene_item_name="")
 
 
 def ensure_config_file(path=CONFIG_PATH):

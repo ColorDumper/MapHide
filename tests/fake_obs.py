@@ -89,14 +89,6 @@ class FakeObs:
     def delete_scene(self, scene):
         del self.scenes[scene]
 
-    def rename_scene(self, old, new):
-        self.scenes = {
-            (new if name == old else name): items for name, items in self.scenes.items()
-        }
-        self._next_id[new] = self._next_id.pop(old)
-        if self.current == old:
-            self.current = new
-
     def switch_to(self, scene):
         self.current = scene
 

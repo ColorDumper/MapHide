@@ -28,9 +28,12 @@ from dataclasses import replace
 
 from .config import (
     DEFAULT_HIDE_DELAY_MS,
+    DEFAULT_HIDE_HOTKEY,
+    DEFAULT_HOTKEY,
     MAX_HIDE_DELAY_MS,
     MIN_HIDE_DELAY_MS,
     AppConfig,
+    clamp,
     default_config,
     load_config,
     save_config,
@@ -132,8 +135,8 @@ class MapHideApp:
         self.password_warning_var = tk.StringVar()
         self._password_tooltip = None
         self.item_var = tk.StringVar()
-        self.hotkey_var = tk.StringVar(value="G")
-        self.hide_hotkey_var = tk.StringVar(value="H")
+        self.hotkey_var = tk.StringVar(value=DEFAULT_HOTKEY)
+        self.hide_hotkey_var = tk.StringVar(value=DEFAULT_HIDE_HOTKEY)
         self.toggle_mode_var = tk.BooleanVar(value=False)
         self.hotkey_caption_var = tk.StringVar(value="Hotkey")
         self.hide_delay_var = tk.IntVar(value=DEFAULT_HIDE_DELAY_MS)
@@ -148,7 +151,7 @@ class MapHideApp:
         self._shown_status = "Idle"
         self.history_lines = []
         self.help_text_var = tk.StringVar(
-            value="Hold G to show the overlay. Release G to hide it."
+            value=f"Hold {DEFAULT_HOTKEY} to show the overlay. Release {DEFAULT_HOTKEY} to hide it."
         )
         self.running_config = default_config()
         self.key_capture_target = None
@@ -705,8 +708,10 @@ class MapHideApp:
     def _set_form(self, cfg):
         cfg = replace(
             cfg,
-            hotkey=cfg.hotkey if is_valid_show_hotkey(cfg.hotkey) else "G",
-            hide_hotkey=cfg.hide_hotkey if is_valid_hide_hotkey(cfg.hide_hotkey) else "H",
+            hotkey=cfg.hotkey if is_valid_show_hotkey(cfg.hotkey) else DEFAULT_HOTKEY,
+            hide_hotkey=(
+                cfg.hide_hotkey if is_valid_hide_hotkey(cfg.hide_hotkey) else DEFAULT_HIDE_HOTKEY
+            ),
             hide_delay_ms=self._clamp_hide_delay(cfg.hide_delay_ms),
         )
         self.running_config = cfg
@@ -1100,7 +1105,7 @@ class MapHideApp:
             delay = int(float(value))
         except (TypeError, ValueError):
             delay = DEFAULT_HIDE_DELAY_MS
-        return max(MIN_HIDE_DELAY_MS, min(MAX_HIDE_DELAY_MS, delay))
+        return clamp(delay, MIN_HIDE_DELAY_MS, MAX_HIDE_DELAY_MS)
 
     def _update_sensitive_visibility(self):
         if hasattr(self, "host_entry"):

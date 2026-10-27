@@ -282,8 +282,8 @@ def test_toggle_separate_keys_hide_registers_a_press_already_released_by_this_po
 
 
 def test_holding_the_key_does_not_retoggle_even_if_pressed_since_flickers():
-    # Confirmed against real hardware: Windows' keyboard auto-repeat
-    # re-asserts GetAsyncKeyState's "pressed since last check" bit roughly
+    # Windows' keyboard auto-repeat re-asserts GetAsyncKeyState's "pressed
+    # since last check" bit roughly
     # every 30ms for as long as a key is held, even though it never actually
     # releases in between. show_key_pressed/hide_key_pressed must only be
     # trusted while the key currently reads up - the down-state comparison

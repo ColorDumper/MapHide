@@ -129,12 +129,11 @@ def test_returns_as_soon_as_the_service_actually_stops():
 
 
 def test_a_slow_shutdown_within_the_ceiling_is_not_cut_short():
-    # What the old fixed SHUTDOWN_WAIT_SECONDS=2 would have gotten wrong:
-    # the worker takes longer than that to actually stop (e.g. still
-    # writing "hide" to several scenes on the way out via
-    # set_overlay_enabled's all_scenes sweep), but well within the new
-    # ceiling - it must be waited out, not cut short.
-    service = _FakeService(stops_after_waits=20)  # 20 * 0.25s poll = 5s > the old 2s wait
+    # The worker can legitimately take several seconds to actually stop (e.g.
+    # still writing "hide" to several scenes on the way out via
+    # set_overlay_enabled's all_scenes sweep). Anything well within the
+    # ceiling must be waited out, not cut short.
+    service = _FakeService(stops_after_waits=20)  # 20 * 0.25s poll = 5s of waiting
 
     map_hider._wait_for_service_stop(service, ceiling_ms=15_000, poll_seconds=0.25)
 

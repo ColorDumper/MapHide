@@ -5,6 +5,7 @@ import json
 import pytest
 
 from maphide.config import (
+    DEFAULT_HIDE_DELAY_MS,
     MAX_HIDE_DELAY_MS,
     MAX_PORT,
     MIN_HIDE_DELAY_MS,
@@ -61,6 +62,62 @@ def test_from_dict_requires_the_core_keys():
 
 def test_from_dict_defaults_auto_reconnect_on_for_configs_saved_before_it_existed():
     assert AppConfig.from_dict(BASE).auto_reconnect is True
+
+
+# --- a hand-edited file must be reported as unreadable, never crash startup ---
+# The callers that load the config catch ValueError (and KeyError for a
+# missing key) and fall back to the default settings.
+
+
+@pytest.mark.parametrize("content", [[], None, "text", 5])
+def test_a_config_that_is_not_an_object_is_unreadable(content):
+    with pytest.raises(ValueError):
+        AppConfig.from_dict(content)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("port", None),
+        ("port", "abc"),
+        ("port", float("inf")),
+        ("hide_delay_ms", "abc"),
+    ],
+)
+def test_a_number_that_is_not_a_number_is_unreadable(field, value):
+    with pytest.raises(ValueError):
+        AppConfig.from_dict({**BASE, field: value})
+
+
+@pytest.mark.parametrize("field", ["host", "scene_item_name"])
+def test_a_required_value_left_null_is_unreadable(field):
+    with pytest.raises(ValueError):
+        AppConfig.from_dict({**BASE, field: None})
+
+
+def test_optional_values_left_null_fall_back_to_their_defaults():
+    cfg = AppConfig.from_dict(
+        {
+            **BASE,
+            "password": None,
+            "hide_delay_ms": None,
+            "auto_reconnect": None,
+            "hotkey": None,
+        }
+    )
+
+    assert cfg.password == ""
+    assert cfg.hide_delay_ms == DEFAULT_HIDE_DELAY_MS
+    assert cfg.auto_reconnect is True
+    assert cfg.hotkey == "G"
+
+
+def test_a_config_file_holding_null_is_unreadable(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text("null", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        load_config(path)
 
 
 def test_save_then_load_round_trips(tmp_path):

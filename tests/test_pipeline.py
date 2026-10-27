@@ -1,0 +1,561 @@
+"""End-to-end tests of the worker against a fake OBS and a scripted keyboard.
+
+These drive MapHideService the way a user does - hold a key, switch scenes,
+lose the connection, delete the source - and check what ended up in OBS and
+what the user was told. See fake_obs.py for the harness.
+"""
+
+import logging
+from datetime import timedelta
+from pathlib import Path
+
+import pytest
+from fake_obs import FakeObs, Session, SteppableWallClock, make_config
+from obsws_python.error import OBSSDKTimeoutError
+
+import maphide.overlay as overlay_module
+from maphide import logs
+from maphide.obs import OBS_OVERLAY_MAY_REMAIN, ObsAuthError, ObsUnreachableError
+from maphide.overlay import CONNECTED, CONNECTING, RECONNECTING, STOPPED
+
+
+class _Lines(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.lines = []
+
+    def emit(self, record):
+        self.lines.append(record.getMessage())
+
+
+@pytest.fixture
+def debug_log():
+    """The lines the worker writes to the debug log, collected in memory."""
+    handler = _Lines()
+    logs.logger.addHandler(handler)
+    logs.logger.setLevel(logging.INFO)
+    yield handler.lines
+    logs.logger.removeHandler(handler)
+    logs.logger.setLevel(logging.CRITICAL)
+
+
+def standard_obs():
+    """Three scenes: two carry the overlay, one doesn't. Every scene has a
+    webcam first, so the overlay's item id is 2 and a write aimed at the wrong
+    id would hit the webcam instead."""
+    return FakeObs(
+        {
+            "Gameplay": ["Webcam", "Overlay"],
+            "Camera": ["Webcam", "Overlay"],
+            "Chatting": ["Webcam"],
+        },
+        current="Gameplay",
+    )
+
+
+def first_scene_read(s):
+    return s.until(lambda: s.saw("New scene detected"), "the first scene to be read")
+
+
+# --- the ordinary hotkey paths ------------------------------------------------
+
+
+def test_holding_the_hotkey_shows_the_overlay_and_releasing_hides_it(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        s.keyboard.release("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay") is False, "the overlay to be hidden")
+
+    session.run(scenario)
+
+    assert obs.is_enabled("Gameplay", "Webcam") is True
+    assert obs.unexpected == []
+
+
+def test_toggle_mode_shows_on_the_show_key_and_hides_on_the_hide_key(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(toggle_mode=True), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.ticks(3)
+        s.keyboard.release("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        s.keyboard.hold("H")
+        yield s.ticks(3)
+        s.keyboard.release("H")
+        yield s.until(lambda: obs.is_enabled("Gameplay") is False, "the overlay to be hidden")
+
+    session.run(scenario)
+
+
+def test_a_tap_that_ends_between_two_polls_still_toggles_in_toggle_mode(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(toggle_mode=True), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.tap("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+
+    session.run(scenario)
+
+
+# --- scenes -------------------------------------------------------------------
+
+
+def test_switching_scenes_while_shown_keeps_the_overlay_shown_in_the_new_scene(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.switch_to("Camera")
+        yield s.until(lambda: obs.is_enabled("Camera"), "the overlay to follow to Camera")
+        assert obs.is_enabled("Gameplay") is True
+        s.keyboard.release("G")
+        yield s.until(lambda: obs.enabled_scenes() == set(), "every scene to be hidden")
+
+    session.run(scenario)
+
+
+def test_releasing_on_a_scene_without_the_source_still_hides_it_everywhere_else(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.enabled_scenes() == {"Gameplay", "Camera"}, "both to show")
+        obs.switch_to("Chatting")
+        yield s.until(lambda: s.saw("Switched to scene: Chatting"), "the switch to be noticed")
+        s.keyboard.release("G")
+        yield s.until(lambda: obs.enabled_scenes() == set(), "every scene to be hidden")
+
+    session.run(scenario)
+
+    assert any("Source 'Overlay' not found" in m for m in session.messages("status"))
+
+
+# --- a lost connection --------------------------------------------------------
+
+
+def test_a_dropped_connection_is_reported_and_the_overlay_state_is_restored(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        # As if OBS had been restarted: the link drops and the overlay comes
+        # back hidden, while the key is still held.
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        obs.set_enabled("Gameplay", False)
+        yield s.until(lambda: obs.connections == 2, "a second connection")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown again")
+        s.keyboard.release("G")
+        yield s.until(lambda: obs.enabled_scenes() == set(), "every scene to be hidden")
+
+    session.run(scenario)
+
+    assert any("lost" in m for m in session.messages("error"))
+
+
+# --- the source being removed and added back ----------------------------------
+
+
+def test_removing_and_re_adding_the_source_recovers_with_a_single_reconnect(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        obs.remove_source("Gameplay")
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.connections == 2, "the refused write to reconnect")
+        yield s.until(
+            lambda: s.saw("Source 'Overlay' not found"), "the missing source to be reported"
+        )
+        obs.add_source("Gameplay")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown again")
+        assert obs.connections == 2
+
+    session.run(scenario)
+
+    assert any("found in scene: Gameplay" in m for m in session.messages("status"))
+
+
+def test_a_deleted_background_scene_is_dropped_without_reconnecting(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.enabled_scenes() == {"Gameplay", "Camera"}, "both to show")
+        obs.delete_scene("Camera")
+        s.keyboard.release("G")
+        yield s.until(
+            lambda: s.saw("Scene 'Camera' is no longer available"), "the scene to be dropped"
+        )
+        yield s.until(lambda: obs.is_enabled("Gameplay") is False, "the active scene to hide")
+
+    session.run(scenario)
+
+    assert obs.connections == 1
+
+
+# --- an OBS that answers badly or not at all ----------------------------------
+
+
+def test_a_timeout_writing_to_a_background_scene_reconnects_instead_of_dropping_it(monkeypatch):
+    # A write that times out says nothing about the scene - the link may be
+    # unusable, and a late reply could be mistaken for the next answer - so it
+    # has to go through the normal reconnect, not be treated as a deleted scene.
+    obs = standard_obs()
+    obs.rule(
+        "SetSceneItemEnabled",
+        raises=OBSSDKTimeoutError("timed out"),
+        when=lambda payload: payload["sceneName"] == "Camera" and payload["sceneItemEnabled"],
+    )
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.connections == 2, "the lost link to be reconnected")
+        yield s.until(
+            lambda: obs.enabled_scenes() == {"Gameplay", "Camera"}, "both scenes to show again"
+        )
+
+    session.run(scenario)
+
+    assert not any("no longer available" in m for m in session.messages("status"))
+
+
+@pytest.mark.parametrize(
+    ("request_type", "rule"),
+    [
+        ("GetCurrentProgramScene", {"returns": None}),
+        ("GetSceneList", {"returns": None}),
+        ("GetSceneItemList", {"raises": KeyError("requestStatus")}),
+        ("GetCurrentProgramScene", {"raises": TypeError("unexpected frame")}),
+    ],
+)
+def test_an_unreadable_reply_reconnects_instead_of_stopping(monkeypatch, request_type, rule):
+    obs = standard_obs()
+    obs.rule(request_type, **rule)
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield s.until(lambda: obs.connections == 2, "a reconnect after the unreadable reply")
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+
+    session.run(scenario)
+
+    assert any("could not read" in m for m in session.messages("error"))
+
+
+# --- what the status line is told ---------------------------------------------
+
+
+def test_the_status_follows_the_connection_through_a_drop_and_a_failed_retry(monkeypatch):
+    obs = standard_obs()
+    unreachable = ObsUnreachableError("Failed to connect to OBS. Make sure OBS is open.")
+    session = Session(monkeypatch, make_config(), [obs, unreachable, obs])
+
+    def scenario(s):
+        yield s.until(lambda: s.service.status.state == CONNECTED, "the first connection")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.until(lambda: len(s.status_at_connect) == 3, "the retry to succeed")
+        yield s.until(lambda: s.service.status.state == CONNECTED, "reconnected")
+
+    session.run(scenario)
+
+    first, after_drop, after_failed_retry = session.status_at_connect
+    assert first.state == CONNECTING
+    # By the next attempt the countdown has taken over from the failure text;
+    # the state is what matters, and it never reads as connected in between.
+    assert after_drop.state == RECONNECTING
+    assert "Reconnecting" in after_drop.message
+    assert after_failed_retry.state == RECONNECTING
+    assert "Reconnecting" in after_failed_retry.message
+    assert session.service.status.state == STOPPED
+    assert session.service.status.message == "MapHide stopped."
+
+
+def test_a_wrong_password_ends_with_the_reason_as_the_final_status(monkeypatch):
+    refused = ObsAuthError("Failed to connect to OBS. The password appears to be incorrect.")
+    session = Session(monkeypatch, make_config(), [refused])
+
+    session.run()
+
+    assert session.service.status.state == STOPPED
+    assert session.service.status.message == str(refused)
+
+
+def test_a_drop_while_the_overlay_is_shown_says_it_may_still_be_showing(monkeypatch):
+    obs = standard_obs()
+    unreachable = ObsUnreachableError("Failed to connect to OBS. Make sure OBS is open.")
+    session = Session(monkeypatch, make_config(), [obs, unreachable, obs])
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.until(lambda: len(s.status_at_connect) == 3, "the retry to succeed")
+        yield s.until(lambda: s.service.status.state == CONNECTED, "reconnected")
+
+    session.run(scenario)
+
+    _first, after_drop, after_failed_retry = session.status_at_connect
+    assert "may still be showing" in after_drop.message
+    assert "may still be showing" in after_failed_retry.message
+    # One plain sentence in the history. What happens to the overlay on
+    # reconnect depends on the mode and the keys, so nothing is promised.
+    in_history = [
+        e["message"] for e in session.events if e["history"] and "may still be" in e["message"]
+    ]
+    assert in_history == ["The overlay may still be showing in OBS."]
+
+
+def test_a_drop_with_the_overlay_hidden_has_no_such_warning_and_it_does_not_linger(
+    monkeypatch,
+):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), [obs, obs, obs])
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.until(lambda: len(s.status_at_connect) == 2, "the first reconnect")
+        yield s.until(lambda: s.service.status.state == CONNECTED, "reconnected")
+        s.keyboard.release("G")
+        yield s.until(lambda: obs.enabled_scenes() == set(), "every scene to be hidden")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.until(lambda: len(s.status_at_connect) == 3, "the second reconnect")
+
+    session.run(scenario)
+
+    _first, after_first_drop, after_second_drop = session.status_at_connect
+    assert "may still be showing" in after_first_drop.message
+    assert "may still be showing" not in after_second_drop.message
+
+
+def test_with_auto_reconnect_off_a_drop_while_shown_ends_with_the_overlay_warning(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(auto_reconnect=False), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.pause(5.0)
+
+    session.run(scenario, worker_ends_first=True)
+
+    assert session.service.status.state == STOPPED
+    assert session.service.status.message == OBS_OVERLAY_MAY_REMAIN
+
+
+def test_a_final_error_that_is_already_in_the_history_is_not_added_again(monkeypatch):
+    refused = ObsAuthError("Failed to connect to OBS. The password appears to be incorrect.")
+    session = Session(monkeypatch, make_config(), [refused])
+
+    session.run()
+
+    history = [e["message"] for e in session.events if e["history"]]
+    assert history.count(str(refused)) == 1
+    assert session.service.status.message == str(refused)
+
+
+def test_scene_changes_and_overlay_events_leave_the_status_alone(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        before = s.service.status
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.switch_to("Camera")
+        yield s.until(lambda: s.saw("Switched to scene: Camera"), "the switch to be noticed")
+        assert s.service.status == before
+
+    session.run(scenario)
+
+
+# --- what the debug log records ----------------------------------------------
+
+
+def test_a_dropped_connection_logs_the_kind_of_failure_behind_it(monkeypatch, debug_log):
+    obs = standard_obs()
+    obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield s.until(lambda: obs.connections == 2, "a reconnect")
+
+    session.run(scenario)
+
+    assert any("OBSSDKTimeoutError" in line for line in debug_log)
+    # The window keeps its plain wording.
+    assert not any("OBSSDKTimeoutError" in m for m in session.messages())
+
+
+def test_an_unexpected_error_is_logged_with_where_it_happened(monkeypatch, debug_log):
+    home = str(Path.home())
+
+    def broken(*args, **kwargs):
+        raise RuntimeError(f"boom in {home}\\somewhere")
+
+    monkeypatch.setattr(overlay_module, "decide", broken)
+    session = Session(monkeypatch, make_config(), standard_obs())
+
+    session.run()
+
+    detail = next(line for line in debug_log if "RuntimeError" in line)
+    assert "boom" in detail
+    assert "overlay.py:_run:" in detail
+    # Nothing in the file may carry the user's folder name.
+    assert not any(home.lower() in line.lower() for line in debug_log)
+    # The window names the kind of error and nothing more.
+    stopped = next(e["message"] for e in session.events if e["kind"] == "stopped")
+    assert "RuntimeError" in stopped
+    assert "boom" not in stopped
+
+
+def test_a_press_with_nowhere_to_write_is_noted_in_the_debug_log(monkeypatch, debug_log):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        obs.switch_to("Chatting")
+        yield s.until(lambda: s.saw("Switched to scene: Chatting"), "the switch to be noticed")
+        s.keyboard.hold("G")
+        yield s.until(
+            lambda: any("no source" in line for line in debug_log), "the press to be noted"
+        )
+
+    session.run(scenario)
+
+    assert any("carrying the source" in line for line in debug_log)
+
+
+def test_a_long_outage_adds_one_line_to_the_debug_log_not_one_per_retry(monkeypatch, debug_log):
+    unreachable = ObsUnreachableError("Failed to connect to OBS. Make sure OBS is open.")
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), [unreachable, unreachable, unreachable, obs])
+
+    def scenario(s):
+        yield s.ticks(1)
+
+    session.run(scenario)
+
+    assert sum("Failed to connect" in line for line in debug_log) == 1
+    assert not any("Reconnecting" in line for line in debug_log)
+    assert any("3 failed attempts" in line for line in debug_log)
+    # The window still reports every attempt.
+    assert len(session.messages("error")) == 3
+
+
+# --- timing must not depend on the wall clock ---------------------------------
+
+
+def test_stepping_the_clock_back_does_not_stop_the_overlay_hiding(monkeypatch):
+    # A clock correction or a daylight-saving change moves the local clock
+    # back. The overlay must still hide when the key is released.
+    clock = SteppableWallClock(monkeypatch)
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        clock.offset = timedelta(hours=-1)
+        s.keyboard.release("G")
+        yield s.until(
+            lambda: obs.is_enabled("Gameplay") is False,
+            "the overlay to be hidden after the clock stepped back",
+            timeout=1.5,
+        )
+
+    session.run(scenario)
+
+
+def test_stepping_the_clock_back_does_not_stop_scene_changes_being_noticed(monkeypatch):
+    clock = SteppableWallClock(monkeypatch)
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        clock.offset = timedelta(hours=-1)
+        obs.switch_to("Camera")
+        yield s.until(
+            lambda: s.saw("Switched to scene: Camera"),
+            "the switch to be noticed after the clock stepped back",
+            timeout=1.5,
+        )
+
+    session.run(scenario)
+
+
+# --- the worker must always finish reporting ----------------------------------
+
+
+def test_a_failure_while_clearing_the_overlay_on_stop_still_reports_stopped(monkeypatch):
+    # The shutdown sweep talks to OBS once more. However that goes wrong, the
+    # worker has to disconnect, say it stopped and stop claiming to be running -
+    # the window waits on exactly that before it lets you start again.
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+    obs.rule(
+        "SetSceneItemEnabled",
+        raises=KeyError("requestStatus"),
+        times=None,
+        when=lambda payload: session.service._stop_event.is_set(),
+    )
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+
+    session.run(scenario)
+
+    assert session.service.is_running is False
+    assert any(e["kind"] == "stopped" for e in session.events)
+    assert obs.disconnected is True
+
+
+def test_a_failure_setting_up_the_debug_log_does_not_leave_the_worker_stuck(monkeypatch):
+    session = Session(monkeypatch, make_config(log_enabled=True), [])
+
+    def locked(enabled):
+        raise PermissionError(13, "The process cannot access the file")
+
+    monkeypatch.setattr(overlay_module, "configure_logging", locked)
+
+    session.run()
+
+    assert session.service.is_running is False
+    assert any(e["kind"] == "stopped" for e in session.events)
+    assert any("debug log" in e["message"] for e in session.events)

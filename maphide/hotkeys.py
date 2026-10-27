@@ -16,9 +16,8 @@ STANDALONE_HIDE_KEY_LABELS = ("ESC", "SHIFT")
 # a press that happened while the worker was blocked on an OBS call. It is
 # not reliable while the key is still down, though - Windows' keyboard
 # auto-repeat re-asserts it roughly every 30ms for as long as a key is held,
-# even though the key never actually releases in between (confirmed against
-# real hardware). Only trust it while the key currently reads up; see
-# state.py's decide().
+# even though the key never actually releases in between. Only trust it
+# while the key currently reads up; see state.py's decide().
 KEY_DOWN_MASK = 0x8000
 KEY_PRESSED_SINCE_MASK = 0x0001
 MODIFIER_KEYSYMS = {

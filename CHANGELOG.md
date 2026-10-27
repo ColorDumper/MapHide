@@ -44,6 +44,41 @@ All notable changes to MapHide are documented here.
   staying silent.
 - Reworked the in-app history log, fixed the live status line flickering,
   tidied up window sizing, and brought back the footer watermark.
+- Fixed MapHide's timing relying on the computer's clock, so a clock
+  correction or the daylight-saving change could stop the overlay hiding or
+  stop scene changes being noticed for up to an hour.
+- Fixed Start and Stop getting stuck if something went wrong while MapHide
+  was hiding the overlay on the way out. It now always finishes stopping, and
+  warns you if the overlay may still be showing in OBS.
+- Fixed MapHide failing to start if the previous debug log was open in another
+  program. It now starts normally and tells you the debug log couldn't be
+  started.
+- Fixed MapHide stopping for good if OBS sent back a reply it couldn't read.
+  It now reconnects and carries on.
+- Fixed a slow or timed-out OBS request being reported as a scene having been
+  removed. It's now treated as the lost connection it is, and MapHide
+  reconnects.
+- The debug log is more useful when something goes wrong: it now records what
+  kind of failure caused a disconnect and where an unexpected error happened,
+  and a long stretch with OBS closed adds one line instead of filling the log
+  with retries.
+- Error messages in the window no longer include file paths, so a screenshot
+  of MapHide doesn't show your Windows user name. The debug log hides your
+  user folder too.
+- The status line now always shows the real state of the OBS connection.
+  Hints and warnings (such as key hints, "OBS Host is required.", or "Key
+  selected") appear below the log for a few seconds instead of replacing it,
+  so a leftover message can no longer sit there while the connection says
+  something different.
+- If the connection to OBS drops while the overlay is showing, MapHide now
+  tells you the overlay may still be showing in OBS until it reconnects (or
+  tells you to check OBS if it stops without reconnecting).
+- The history log no longer shows the same error twice when MapHide gives up,
+  and the "connection lost" message no longer asks you to reconnect when
+  MapHide is already doing it for you.
+- Fixed MapHide failing to open, with no message, if the settings file held an
+  empty or invalid value (such as a blank port). It now opens with default
+  settings instead.
 - Further internal cleanup, with no other change to how MapHide works.
 
 ## v0.2.5 - 2026-09-05

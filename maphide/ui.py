@@ -43,6 +43,7 @@ from .hotkeys import (
     is_valid_show_hotkey,
     normalize_event_key,
 )
+from .logs import plain_reason
 from .overlay import MapHideService, human_ts, stop_wait_should_continue
 from .paths import (
     APP_NAME,
@@ -62,6 +63,8 @@ HISTORY_LINE_COUNT = 10
 HELP_AREA_WIDTH = 340
 HELP_AREA_HEIGHT = 44
 EVENT_DRAIN_INTERVAL_MS = 100
+NOTICE_MS = 6000
+LONG_NOTICE_MS = 10_000
 AUTO_CONNECT_DELAY_MS = 250
 RESTART_POLL_INTERVAL_MS = 50
 # A backstop, not a normal-case budget: the worker's own shutdown cleanup can
@@ -93,6 +96,13 @@ COLOR_DISABLED = "#5a6472"
 COLOR_WARNING = "#e6b450"
 
 
+def status_line(status, restart_pending):
+    """What the status line says: the service's own wording, except while a
+    settings change is restarting it - the stop and start in between are not
+    worth showing."""
+    return "Applying settings..." if restart_pending else status.message
+
+
 def set_windows_app_id():
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
 
@@ -110,6 +120,7 @@ class MapHideApp:
         self.restart_pending = False
         self.pending_restart_config = None
         self.reset_confirm_pending = False
+        self._notice_job = None
         self.collapsed_width = 0
         self.expanded_width = 0
         self.collapsed_height = 0
@@ -134,6 +145,7 @@ class MapHideApp:
         self.auto_reconnect_var = tk.BooleanVar(value=True)
         self.log_enabled_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle")
+        self._shown_status = "Idle"
         self.history_lines = []
         self.help_text_var = tk.StringVar(
             value="Hold G to show the overlay. Release G to hide it."
@@ -181,6 +193,7 @@ class MapHideApp:
         )
         style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT)
         style.configure("Muted.TLabel", background=COLOR_PANEL, foreground=COLOR_MUTED)
+        style.configure("Notice.TLabel", background=COLOR_PANEL, foreground=COLOR_WARNING)
         default_font = tkfont.nametofont("TkDefaultFont")
         # A couple of points larger and bold, so the mark is easy to spot and land a
         # hover on without the row growing any taller than the entry field beside it.
@@ -682,7 +695,9 @@ class MapHideApp:
             cfg = load_config()
         except (OSError, ValueError, KeyError):
             cfg = default_config()
-            self.status_var.set("Config not loaded. Fill in values and save settings.")
+            self._show_notice(
+                "Config not loaded. Fill in values and save settings.", LONG_NOTICE_MS
+            )
         self._set_form(cfg)
         if cfg.auto_connect:
             self.root.after(AUTO_CONNECT_DELAY_MS, self.start_service)
@@ -759,17 +774,16 @@ class MapHideApp:
             cfg = self._read_form()
             save_config(cfg)
         except ValueError as exc:
-            self.status_var.set(str(exc))
+            self._show_notice(str(exc))
             return
         except OSError as exc:
-            self._show_error("Could not save config", str(exc))
+            self._show_error("Could not save config", plain_reason(exc))
             return
         self._apply_config(cfg, "Config saved.")
 
     def reset_defaults(self):
         if not self.reset_confirm_pending:
-            self.reset_confirm_pending = True
-            self.status_var.set("Click Reset Defaults again to confirm.")
+            self._show_notice("Click Reset Defaults again to confirm.", confirms_reset=True)
             return
 
         self.reset_confirm_pending = False
@@ -794,18 +808,21 @@ class MapHideApp:
             save_config(cfg)
             self.service.start(cfg)
         except ValueError as exc:
-            self.status_var.set(str(exc))
+            self._show_notice(str(exc))
             return
-        except (OSError, RuntimeError) as exc:
+        except OSError as exc:
+            self._show_error("Could not start MapHide", plain_reason(exc))
+            return
+        except RuntimeError as exc:
             self._show_error("Could not start MapHide", str(exc))
             return
 
-        self.status_var.set("Starting...")
+        self._render_status()
         self._sync_service_buttons()
 
     def stop_service(self):
         self.service.stop()
-        self.status_var.set("Stopping...")
+        self._render_status()
 
     def _restart_service_with_config(self, cfg):
         self.pending_restart_config = cfg
@@ -826,7 +843,8 @@ class MapHideApp:
         try:
             self.service.start(cfg)
         except RuntimeError as exc:
-            self.status_var.set(str(exc))
+            self._show_notice(str(exc))
+        self._render_status()
         self._sync_service_buttons()
 
     def _wait_for_service_stop(self, ceiling_ms, on_stopped, elapsed_ms=0):
@@ -860,6 +878,15 @@ class MapHideApp:
             if str(button.cget("state")) != state:
                 button.configure(state=state)
 
+    def _render_status(self):
+        # Drawn from where the service stands now, not from replaying events,
+        # so a late or stale event can never leave the line saying something
+        # the connection no longer is.
+        text = status_line(self.service.status, self.restart_pending)
+        if text != self._shown_status:
+            self._shown_status = text
+            self.status_var.set(text)
+
     def _drain_events(self):
         while True:
             try:
@@ -867,16 +894,10 @@ class MapHideApp:
             except queue.Empty:
                 break
 
-            # A save-triggered restart stops the old worker before starting a new
-            # one; that stop always emits a live "stopped" event, but it is not a
-            # real stop from the user's point of view and would otherwise flash
-            # over the live status for the moment before the new connection
-            # comes up. The history line is still worth keeping either way.
-            if event["live"] and not self.restart_pending:
-                self.status_var.set(event["message"])
             if event["history"]:
                 self._add_history_line(event["timestamp"], event["message"])
 
+        self._render_status()
         self._sync_service_buttons()
         self.root.after(EVENT_DRAIN_INTERVAL_MS, self._drain_events)
 
@@ -908,7 +929,26 @@ class MapHideApp:
         except tk.TclError:
             pass
 
+    def _show_notice(self, text, milliseconds=NOTICE_MS, confirms_reset=False):
+        """Say something once, in the help area under the log, then put the
+        usual help back. The status line stays for the OBS connection alone."""
+        if self._notice_job is not None:
+            self.root.after_cancel(self._notice_job)
+        self.reset_confirm_pending = confirms_reset
+        self.help_text_var.set(text)
+        self.help_label.configure(style="Notice.TLabel")
+        self._notice_job = self.root.after(milliseconds, self._clear_notice)
+
+    def _clear_notice(self):
+        self._notice_job = None
+        self.reset_confirm_pending = False
+        self.help_label.configure(style="Muted.TLabel")
+        self._update_help_text()
+
     def _update_help_text(self):
+        if self._notice_job is not None:
+            # A notice is showing; the help comes back when it clears.
+            return
         hotkey = self.running_config.hotkey
         hide_hotkey = self.running_config.hide_hotkey
         if self.running_config.toggle_mode:
@@ -953,10 +993,7 @@ class MapHideApp:
         self.key_capture_target = target
         button = self.hotkey_button if target == "show" else self.hide_hotkey_button
         button.configure(text=KEY_CAPTURE_PROMPT)
-        if target == "show":
-            self.status_var.set(SHOW_KEY_HELP)
-        else:
-            self.status_var.set(HIDE_KEY_HELP)
+        self._show_notice(SHOW_KEY_HELP if target == "show" else HIDE_KEY_HELP)
         try:
             self.root.focus_force()
         except tk.TclError:
@@ -984,26 +1021,26 @@ class MapHideApp:
         hotkey = self._hotkey_from_event(event)
         if not hotkey:
             if self.key_capture_target == "hide":
-                self.status_var.set(HIDE_KEY_HELP)
+                self._show_notice(HIDE_KEY_HELP)
             else:
-                self.status_var.set(SHOW_KEY_HELP)
+                self._show_notice(SHOW_KEY_HELP)
             self._stop_key_capture()
             return "break"
         if self.key_capture_target == "show":
             if not is_valid_show_hotkey(hotkey):
-                self.status_var.set(SHOW_KEY_HELP)
+                self._show_notice(SHOW_KEY_HELP)
                 self._stop_key_capture()
                 return "break"
             self.hotkey_var.set(hotkey)
         elif self.key_capture_target == "hide":
             if not is_valid_hide_hotkey(hotkey):
-                self.status_var.set(HIDE_KEY_HELP)
+                self._show_notice(HIDE_KEY_HELP)
                 self._stop_key_capture()
                 return "break"
             self.hide_hotkey_var.set(hotkey)
         self._stop_key_capture()
         self._sync_key_buttons()
-        self.status_var.set("Key selected. Click Save Settings to apply.")
+        self._show_notice("Key selected. Click Save Settings to apply.")
         return "break"
 
     def _hotkey_from_event(self, event):
@@ -1105,7 +1142,10 @@ class MapHideApp:
 
     def _setup_tray(self):
         if pystray is None or Image is None or ImageDraw is None:
-            self.status_var.set("Tray support unavailable. Closing the window will exit the app.")
+            self._show_notice(
+                "Tray support unavailable. Closing the window will exit the app.",
+                LONG_NOTICE_MS,
+            )
             return
 
         menu = pystray.Menu(
@@ -1143,7 +1183,6 @@ class MapHideApp:
             return
 
         self.root.withdraw()
-        self.status_var.set("MapHide is still running in the system tray.")
 
     def _show_window(self):
         if self.exit_requested:

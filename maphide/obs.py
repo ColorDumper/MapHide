@@ -33,9 +33,10 @@ OBS_UNREACHABLE = (
 OBS_SETTINGS_WRONG = (
     "Failed to connect to OBS. Check that OBS is open and your connection settings are correct."
 )
-OBS_LINK_LOST = "The connection to OBS was lost. Reconnect after OBS is available again."
+OBS_LINK_LOST = "The connection to OBS was lost."
 OBS_READ_REFUSED = "OBS returned an error while reading the current scene."
 OBS_WRITE_REFUSED = "OBS returned an error while updating the overlay source."
+OBS_BAD_REPLY = "OBS sent a reply MapHide could not read."
 OBS_OVERLAY_MAY_REMAIN = (
     "MapHide stopped, but lost the connection before it could hide the overlay. Check OBS."
 )
@@ -43,6 +44,12 @@ OBS_OVERLAY_MAY_REMAIN = (
 
 class ObsConnectionError(Exception):
     pass
+
+
+class ObsRequestRefused(ObsConnectionError):
+    """OBS received a request and said no - the scene or source it names is
+    most likely gone. The link itself is fine, unlike every other
+    ObsConnectionError, which means it can't be trusted."""
 
 
 class ObsAuthError(ObsConnectionError):
@@ -93,16 +100,44 @@ def connect_obs(host, port, password, timeout=CONNECT_TIMEOUT):
     return client
 
 
-def find_scene_item_id(client, scene_name, source_name):
+def _request(client, request_type, payload=None, refused_message=OBS_READ_REFUSED):
+    """Send one request and sort every way it can fail. OBS saying no is an
+    ObsRequestRefused; a dead or timed-out link, or a reply that isn't in the
+    shape OBS documents, is a plain ObsConnectionError - after either of those
+    the connection can no longer be trusted to pair answers with requests."""
+    # The try holds a single third-party call, so catching KeyError and
+    # TypeError here cannot mask a mistake of ours.
     try:
-        resp = client.send("GetSceneItemList", {"sceneName": scene_name}, raw=True)
+        if payload is None:
+            return client.send(request_type, raw=True)
+        return client.send(request_type, payload, raw=True)
     except OBSSDKRequestError as exc:
-        raise ObsConnectionError(OBS_READ_REFUSED) from exc
+        raise ObsRequestRefused(refused_message) from exc
     except OBS_TRANSPORT_ERRORS as exc:
         raise ObsConnectionError(OBS_LINK_LOST) from exc
+    except (KeyError, TypeError) as exc:
+        raise ObsConnectionError(OBS_BAD_REPLY) from exc
 
-    items = resp.get("sceneItems") or resp.get("scene_items") or []
-    for item in items:
+
+def _reply_body(reply):
+    if not isinstance(reply, dict):
+        raise ObsConnectionError(OBS_BAD_REPLY)
+    return reply
+
+
+def _entries(body, *keys):
+    """The list stored under the first of `keys` that is present, or an empty
+    list when none is. Anything but a list of objects is an unreadable reply."""
+    entries = next((body[key] for key in keys if body.get(key)), [])
+    if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+        raise ObsConnectionError(OBS_BAD_REPLY)
+    return entries
+
+
+def find_scene_item_id(client, scene_name, source_name):
+    resp = _reply_body(_request(client, "GetSceneItemList", {"sceneName": scene_name}))
+
+    for item in _entries(resp, "sceneItems", "scene_items"):
         name = item.get("sourceName") or item.get("source_name")
         item_id = item.get("sceneItemId") or item.get("scene_item_id")
         if name == source_name:
@@ -111,12 +146,7 @@ def find_scene_item_id(client, scene_name, source_name):
 
 
 def get_current_scene(client):
-    try:
-        resp = client.send("GetCurrentProgramScene", raw=True)
-    except OBSSDKRequestError as exc:
-        raise ObsConnectionError(OBS_READ_REFUSED) from exc
-    except OBS_TRANSPORT_ERRORS as exc:
-        raise ObsConnectionError(OBS_LINK_LOST) from exc
+    resp = _reply_body(_request(client, "GetCurrentProgramScene"))
     return resp.get("currentProgramSceneName") or resp.get("current_program_scene_name")
 
 
@@ -126,27 +156,15 @@ def set_scene_item_enabled(client, scene_name, scene_item_id, enabled):
         "sceneItemId": scene_item_id,
         "sceneItemEnabled": bool(enabled),
     }
-    # The one call that can strand the overlay on screen, and the only one that
-    # had no error handling at all.
-    try:
-        return client.send("SetSceneItemEnabled", payload, raw=True)
-    except OBSSDKRequestError as exc:
-        raise ObsConnectionError(OBS_WRITE_REFUSED) from exc
-    except OBS_TRANSPORT_ERRORS as exc:
-        raise ObsConnectionError(OBS_LINK_LOST) from exc
+    # The one call that can leave the overlay on screen if it fails.
+    return _request(client, "SetSceneItemEnabled", payload, refused_message=OBS_WRITE_REFUSED)
 
 
 def find_overlay_scene_items(client, source_name):
-    try:
-        resp = client.send("GetSceneList", raw=True)
-    except OBSSDKRequestError as exc:
-        raise ObsConnectionError(OBS_READ_REFUSED) from exc
-    except OBS_TRANSPORT_ERRORS as exc:
-        raise ObsConnectionError(OBS_LINK_LOST) from exc
+    resp = _reply_body(_request(client, "GetSceneList"))
 
-    scenes = resp.get("scenes") or resp.get("scene_list") or []
     scene_items = {}
-    for scene in scenes:
+    for scene in _entries(resp, "scenes", "scene_list"):
         scene_name = scene.get("sceneName") or scene.get("scene_name")
         if scene_name:
             scene_items[scene_name] = find_scene_item_id(client, scene_name, source_name)

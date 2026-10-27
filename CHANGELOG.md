@@ -4,6 +4,8 @@ All notable changes to MapHide are documented here.
 
 ## Unreleased
 
+## v0.2.6 - 2026-10-27
+
 - Added a guard against two copies of MapHide running at once. Launching it
   again while it's already running just brings the existing window (or its
   "already running" notice) to the front instead of starting a second copy.

@@ -503,7 +503,8 @@ class MapHideService:
                         hide_key_pressed=hide_pressed,
                     )
                     # How often the map itself gets toggled has nothing to do with
-                    # the OBS connection, so these carry no state. Logged only when the active scene actually carries the source -
+                    # the OBS connection, so these carry no state. Logged only
+                    # when the active scene actually carries the source -
                     # sync_scene silently no-ops otherwise (the source may still be
                     # kept in sync in a different scene, in the background below),
                     # and a log line claiming something happened on the scene you're

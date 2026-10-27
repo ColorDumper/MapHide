@@ -35,9 +35,8 @@ HIDE_KEY_HELP = "Hide key supports A-Z, Esc, Shift, or Shift+A-Z."
 
 
 def hotkey_to_vk_codes(hotkey, fallback=None):
-    labels = [part.strip().upper() for part in str(hotkey).split("+") if part.strip()]
     codes = []
-    for label in labels:
+    for label in hotkey_labels(hotkey):
         code = HOTKEY_TO_VK.get(label)
         if code is None:
             return fallback or []

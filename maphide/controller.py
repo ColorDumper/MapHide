@@ -11,6 +11,7 @@ the window passes in, so they always run on the window's own thread.
 
 import queue
 import threading
+from dataclasses import dataclass
 
 from .config import (
     connection_from_form,
@@ -34,6 +35,25 @@ CHECK_FAILED = "Could not check the connection."
 # cleanup somehow runs far longer than any realistic scene count justifies.
 EXIT_WAIT_CEILING_MS = 15_000
 APPLYING_SETTINGS = "Applying settings..."
+# History codes for the controller's own entries, alongside the worker's
+# EVENT_* codes.
+HISTORY_SETTINGS_SAVED = "settings_saved"
+HISTORY_DEFAULTS_RESTORED = "defaults_restored"
+# A message the window itself puts in the history, such as a setting it
+# can't use.
+HISTORY_NOTICE = "notice"
+
+
+@dataclass(frozen=True)
+class HistoryEntry:
+    """One line of the in-app history. `code` says what it is about (an
+    EVENT_* code or one of the HISTORY_* codes above), so a window can word
+    it its own way; `subject` is the scene it names, if any."""
+
+    timestamp: str
+    message: str
+    code: str | None = None
+    subject: str | None = None
 
 
 def status_line(status, restart_pending):
@@ -84,7 +104,7 @@ class AppController:
         self.restart_pending = False
         self._pending_restart_config = None
         self.exit_requested = False
-        self.history_lines = []
+        self.history = []
 
     # What the window draws.
 
@@ -182,20 +202,20 @@ class AppController:
         """Save `cfg` and put it into effect. Raises OSError if it can't be
         written, in which case nothing changes."""
         self._save(cfg)
-        self._apply(cfg, "Config saved.")
+        self._apply(cfg, "Config saved.", HISTORY_SETTINGS_SAVED)
 
     def restore_defaults(self):
         """Save and apply the default settings, and return them."""
         cfg = default_config()
         self._save(cfg)
-        self._apply(cfg, "Defaults restored.")
+        self._apply(cfg, "Defaults restored.", HISTORY_DEFAULTS_RESTORED)
         return cfg
 
-    def _apply(self, cfg, done_message):
+    def _apply(self, cfg, done_message, code):
         self.running_config = cfg
         # The history, not the live status line: a save confirmation isn't
         # part of the OBS connection's own story.
-        self.add_history(human_ts(), done_message)
+        self.add_history(human_ts(), done_message, code)
         # Only restart for a change the worker would actually see: a restart
         # briefly drops the OBS link and hides the overlay. A restart already
         # under way always takes the newest settings.
@@ -275,12 +295,19 @@ class AppController:
             except queue.Empty:
                 return changed
             if event["history"]:
-                self.add_history(event["timestamp"], event["message"])
+                self.add_history(
+                    event["timestamp"], event["message"], event.get("code"), event.get("subject")
+                )
                 changed = True
 
-    def add_history(self, timestamp, message):
-        self.history_lines.append(f"{timestamp}  {message}")
-        del self.history_lines[:-HISTORY_LINE_COUNT]
+    def add_history(self, timestamp, message, code=None, subject=None):
+        self.history.append(HistoryEntry(timestamp, message, code, subject))
+        del self.history[:-HISTORY_LINE_COUNT]
+
+    @property
+    def history_lines(self):
+        """The history as plain lines, oldest first."""
+        return [f"{entry.timestamp}  {entry.message}" for entry in self.history]
 
     # Shutting down.
 

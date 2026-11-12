@@ -197,6 +197,18 @@ def test_emit_includes_the_event_kind_and_code():
     assert event["code"] == overlay_module.EVENT_CONNECTED
 
 
+def test_emit_carries_the_scene_an_event_is_about():
+    service = MapHideService()
+
+    service._emit("status", overlay_module.EVENT_SCENE, "Switched to scene: Gameplay.")
+    service._emit(
+        "status", overlay_module.EVENT_SCENE, "Switched to scene: Camera.", subject="Camera"
+    )
+
+    assert service.events.get_nowait()["subject"] is None
+    assert service.events.get_nowait()["subject"] == "Camera"
+
+
 def test_a_new_service_reads_as_idle():
     status = MapHideService().status
 

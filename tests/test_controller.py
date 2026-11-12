@@ -10,14 +10,24 @@ from maphide.config import AppConfig, default_config
 from maphide.controller import (
     CHECK_FAILED,
     EXIT_WAIT_CEILING_MS,
+    HISTORY_DEFAULTS_RESTORED,
     HISTORY_LINE_COUNT,
+    HISTORY_SETTINGS_SAVED,
     RESTART_POLL_INTERVAL_MS,
     AppController,
+    HistoryEntry,
     help_text,
     status_line,
 )
 from maphide.obs import ConnectionCheck
-from maphide.overlay import CONNECTED, STOPPED, STOPPING, ObsSnapshot, ServiceStatus
+from maphide.overlay import (
+    CONNECTED,
+    EVENT_SCENE,
+    STOPPED,
+    STOPPING,
+    ObsSnapshot,
+    ServiceStatus,
+)
 
 
 def make_config(**overrides):
@@ -62,9 +72,16 @@ class FakeService:
         self.is_running = False
         self.status = ServiceStatus(STOPPED, "MapHide stopped.")
 
-    def emit(self, message, history=True):
+    def emit(self, message, history=True, code=None, subject=None):
         self.events.put(
-            {"kind": "status", "message": message, "timestamp": "t", "history": history}
+            {
+                "kind": "status",
+                "code": code,
+                "message": message,
+                "timestamp": "t",
+                "history": history,
+                "subject": subject,
+            }
         )
 
 
@@ -311,6 +328,24 @@ def test_events_marked_for_history_are_kept(h):
 
     assert h.controller.drain_events() is True
     assert h.controller.history_lines == ["t  Connected to OBS."]
+
+
+def test_history_entries_keep_the_event_code_and_scene(h):
+    h.service.emit("Switched to scene: Gameplay.", code=EVENT_SCENE, subject="Gameplay")
+
+    h.controller.drain_events()
+
+    assert h.controller.history == [
+        HistoryEntry("t", "Switched to scene: Gameplay.", EVENT_SCENE, "Gameplay")
+    ]
+
+
+def test_saving_and_restoring_defaults_are_marked_in_the_history(h):
+    h.controller.save(make_config())
+    h.controller.restore_defaults()
+
+    codes = [entry.code for entry in h.controller.history]
+    assert codes == [HISTORY_SETTINGS_SAVED, HISTORY_DEFAULTS_RESTORED]
 
 
 def test_draining_with_nothing_new_reports_no_change(h):

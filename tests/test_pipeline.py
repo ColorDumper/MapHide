@@ -23,6 +23,7 @@ from maphide.overlay import (
     EVENT_CONNECTING,
     EVENT_OVERLAY_SHOWN,
     EVENT_SCENE,
+    EVENT_SCENE_WITHOUT_SOURCE,
     EVENT_STOPPED,
     RECONNECTING,
     STOPPED,
@@ -646,6 +647,25 @@ def test_events_carry_a_code_for_what_happened(monkeypatch):
     assert codes[:3] == [EVENT_CONNECTING, EVENT_CONNECTED, EVENT_SCENE]
     assert EVENT_OVERLAY_SHOWN in codes
     assert codes[-1] == EVENT_STOPPED
+
+
+def test_scene_events_name_their_scene_and_flag_one_without_the_source(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        obs.switch_to("Chatting")
+        yield s.until(lambda: s.saw("Chatting"), "the switch to be noticed")
+
+    session.run(scenario)
+
+    scenes = [
+        (event["code"], event["subject"])
+        for event in session.events
+        if event["code"] in (EVENT_SCENE, EVENT_SCENE_WITHOUT_SOURCE)
+    ]
+    assert scenes == [(EVENT_SCENE, "Gameplay"), (EVENT_SCENE_WITHOUT_SOURCE, "Chatting")]
 
 
 # --- the window's test button -------------------------------------------------

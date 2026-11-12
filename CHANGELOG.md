@@ -39,6 +39,8 @@ All notable changes to MapHide are documented here.
   Exit in the tray does.
 - Fixed the overlay staying visible in OBS when Windows signed out, restarted
   or shut down while MapHide was running.
+- Added an installer, which adds MapHide to the Start menu and to Installed
+  apps in Windows. Uninstalling asks whether to keep your settings.
 
 ## v0.2.6 - 2026-10-27
 

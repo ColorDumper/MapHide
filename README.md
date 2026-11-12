@@ -133,7 +133,7 @@ You usually only need this if both PCs are on the same network, the password is 
 
 On the **gaming PC**:
 
-1. Download and run MapHide.
+1. Download `MapHide-<version>-setup.exe` from the [Releases page](https://github.com/ColorDumper/MapHide/releases/latest), run it, then open MapHide from the Start menu.
 2. Click `SETTINGS`.
 3. Enter the streaming PC OBS details:
    - **Host**: the streaming PC local IP address
@@ -247,7 +247,7 @@ This is normal behavior. MapHide hides to the system tray instead of fully closi
 
 ## Version
 
-The latest release and its download are on the [Releases page](https://github.com/ColorDumper/MapHide/releases/latest). What changed in each version is in the [changelog](CHANGELOG.md).
+The latest release and its download are on the [Releases page](https://github.com/ColorDumper/MapHide/releases/latest). To update, run the newer setup file; your settings are kept. To remove MapHide, use **Settings > Apps > Installed apps** in Windows, where you can choose whether to keep your settings. What changed in each version is in the [changelog](CHANGELOG.md).
 
 ## Credits
 

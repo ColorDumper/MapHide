@@ -153,6 +153,10 @@ class AppController:
         cfg = self._pending_restart_config
         self.restart_pending = False
         self._pending_restart_config = None
+        if self.exit_requested:
+            # MapHide is closing: a new worker would outlive the exit's own
+            # wait and be cut off without hiding the overlay.
+            return
         try:
             self.service.start(cfg)
         except RuntimeError as exc:

@@ -364,3 +364,18 @@ def test_a_second_exit_request_is_ignored(h):
 
     assert h.controller.begin_exit(lambda: finished.append(2)) is False
     assert h.service.stop_requests == 1
+
+
+def test_exiting_during_a_restart_does_not_start_the_new_worker(h):
+    finished = []
+    h.controller.start(make_config())
+    h.controller.save(make_config(hotkey="M"))
+
+    h.controller.begin_exit(lambda: finished.append(True))
+    h.service.finish_stopping()
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+    assert h.service.started_with == [make_config()]
+    assert h.service.is_running is False
+    assert finished == [True]

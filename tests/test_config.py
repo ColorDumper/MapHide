@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from maphide import config as config_module
 from maphide.config import (
     DEFAULT_HIDE_DELAY_MS,
     MAX_HIDE_DELAY_MS,
@@ -131,6 +132,35 @@ def test_save_then_load_round_trips(tmp_path):
     )
     save_config(cfg, path)
     assert load_config(path) == cfg
+
+
+def test_a_save_cut_short_leaves_the_old_settings_intact(tmp_path, monkeypatch):
+    path = tmp_path / "config.json"
+    old = AppConfig.from_dict({**default_config().to_dict(), "host": "10.0.0.5"})
+    save_config(old, path)
+
+    def dump_then_fail(data, file, **_options):
+        file.write('{"host": "10.0.')
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config_module.json, "dump", dump_then_fail)
+    new = AppConfig.from_dict({**default_config().to_dict(), "host": "192.168.1.9"})
+
+    with pytest.raises(OSError):
+        save_config(new, path)
+    monkeypatch.undo()
+
+    assert load_config(path) == old
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+def test_a_save_leaves_no_temporary_file_behind(tmp_path):
+    path = tmp_path / "config.json"
+
+    save_config(default_config(), path)
+    save_config(default_config(), path)
+
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
 
 
 def test_hand_edited_delay_is_sanitised_on_load(tmp_path):

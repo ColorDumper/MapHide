@@ -165,6 +165,53 @@ def test_start_saves_the_settings_then_starts_the_worker_with_them(h):
     assert (h.controller.can_start, h.controller.can_stop) == (False, True)
 
 
+def test_start_with_the_settings_just_loaded_does_not_save_them_again(h):
+    cfg, _ = h.controller.load(load=lambda: make_config(hotkey="M"))
+
+    h.controller.start(cfg)
+
+    assert h.saved == []
+    assert h.service.started_with == [cfg]
+
+
+def test_start_with_changed_settings_saves_them(h):
+    h.controller.load(load=lambda: make_config(hotkey="M"))
+    changed = make_config(hotkey="K")
+
+    h.controller.start(changed)
+
+    assert h.saved == [changed]
+
+
+def test_start_after_a_save_does_not_save_the_same_settings_again(h):
+    cfg = make_config(hotkey="K")
+    h.controller.save(cfg)
+    h.saved.clear()
+
+    h.controller.start(cfg)
+
+    assert h.saved == []
+
+
+def test_start_saves_when_the_file_could_not_be_read(h):
+    def failing_load():
+        raise ValueError("bad")
+
+    cfg, _ = h.controller.load(load=failing_load)
+
+    h.controller.start(cfg)
+
+    assert h.saved == [cfg]
+
+
+def test_start_saves_values_loading_had_to_replace(h):
+    cfg, _ = h.controller.load(load=lambda: make_config(hotkey="?"))
+
+    h.controller.start(cfg)
+
+    assert h.saved == [cfg]
+
+
 def test_start_does_not_run_the_worker_when_saving_fails(h):
     def failing_save(_cfg):
         raise OSError("denied")

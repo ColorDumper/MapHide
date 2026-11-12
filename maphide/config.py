@@ -1,6 +1,7 @@
 """The settings file: its shape, and reading and writing it."""
 
 import json
+import os
 import shutil
 from dataclasses import dataclass, replace
 
@@ -242,8 +243,7 @@ def ensure_config_file(path=CONFIG_PATH):
     if LEGACY_CONFIG_PATH.exists() and LEGACY_CONFIG_PATH.resolve() != path.resolve():
         shutil.copy2(LEGACY_CONFIG_PATH, path)
         return
-    with open(path, "w", encoding="utf-8") as file:
-        json.dump(default_config().to_dict(), file, indent=2)
+    save_config(default_config(), path)
 
 
 def load_config(path=CONFIG_PATH):
@@ -253,6 +253,16 @@ def load_config(path=CONFIG_PATH):
 
 
 def save_config(cfg, path=CONFIG_PATH):
+    """Write `cfg` to a temporary file next to `path`, then swap it in, so a
+    crash or power cut mid-save leaves the old settings, never half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as file:
-        json.dump(cfg.to_dict(), file, indent=2)
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        with open(temporary, "w", encoding="utf-8") as file:
+            json.dump(cfg.to_dict(), file, indent=2)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise

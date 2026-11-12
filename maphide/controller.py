@@ -86,6 +86,9 @@ class AppController:
         self._notify = notify
         self._on_change = on_change
         self.running_config = default_config()
+        # What the settings file holds, as last read or written; None when
+        # that isn't known, as when the file couldn't be read.
+        self._saved_config = None
         # The settings the running worker was started with, or None.
         self._worker_config = None
         self.restart_pending = False
@@ -171,22 +174,24 @@ class AppController:
         try:
             cfg = load()
             loaded = True
+            self._saved_config = cfg
         except (OSError, ValueError, KeyError):
             cfg = default_config()
             loaded = False
+            self._saved_config = None
         self.running_config = form_ready(cfg)
         return self.running_config, loaded
 
     def save(self, cfg):
         """Save `cfg` and put it into effect. Raises OSError if it can't be
         written, in which case nothing changes."""
-        self._save(cfg)
+        self._write(cfg)
         self._apply(cfg, "Config saved.", HISTORY_SETTINGS_SAVED)
 
     def restore_defaults(self):
         """Save and apply the default settings, and return them."""
         cfg = default_config()
-        self._save(cfg)
+        self._write(cfg)
         self._apply(cfg, "Defaults restored.", HISTORY_DEFAULTS_RESTORED)
         return cfg
 
@@ -207,11 +212,16 @@ class AppController:
 
     # The worker.
 
-    def start(self, cfg):
-        """Save `cfg` and start the worker with it. Raises OSError if the
-        settings can't be saved, RuntimeError if the worker is already
-        running."""
+    def _write(self, cfg):
         self._save(cfg)
+        self._saved_config = cfg
+
+    def start(self, cfg):
+        """Save `cfg`, unless the file already holds it, and start the
+        worker with it. Raises OSError if the settings can't be saved,
+        RuntimeError if the worker is already running."""
+        if cfg != self._saved_config:
+            self._write(cfg)
         self.service.start(cfg)
         self._worker_config = cfg
         self.running_config = cfg

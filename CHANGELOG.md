@@ -47,6 +47,9 @@ All notable changes to MapHide are documented here.
 - Added a Check for updates switch under Behavior in Settings, on by default,
   which looks for a new version when MapHide opens. The field log says when
   one is out.
+- Fixed your settings being lost if the PC crashed or lost power while
+  MapHide was saving them. Start also no longer saves settings that haven't
+  changed.
 
 ## v0.2.6 - 2026-10-27
 

@@ -1,8 +1,9 @@
+import io
 import struct
 from pathlib import Path
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageFont
 
 from tools.make_assets import (
     ICO_SIZES,
@@ -64,6 +65,30 @@ def test_icon_pngs_are_square_at_their_size(name, size):
     assert Image.open(ASSETS / name).size == size
 
 
+@pytest.mark.parametrize(
+    ("file", "family", "style"),
+    [
+        ("Barlow-Regular.ttf", "Barlow", "Regular"),
+        ("Barlow-Medium.ttf", "Barlow", "Medium"),
+        ("BarlowCondensed-SemiBold.ttf", "Barlow Condensed", "SemiBold"),
+        ("BarlowCondensed-Bold.ttf", "Barlow Condensed", "Bold"),
+        ("IBMPlexMono-Regular.ttf", "IBM Plex Mono", "Regular"),
+        ("IBMPlexMono-Medium.ttf", "IBM Plex Mono", "Medium"),
+    ],
+)
+def test_fonts_load(file, family, style):
+    assert ImageFont.truetype(str(ASSETS / "fonts" / file), 12).getname() == (family, style)
+
+
+def test_every_bundled_font_has_its_license_beside_it():
+    fonts = ASSETS / "fonts"
+    # Barlow's license covers Barlow Condensed too: one project, one license.
+    licensed = {path.name.removesuffix("-OFL.txt") for path in fonts.glob("*-OFL.txt")}
+    for font in fonts.glob("*.ttf"):
+        family = font.name.split("-")[0].removesuffix("Condensed")
+        assert family in licensed, font.name
+
+
 def riff(*chunks):
     body = b"WEBP" + b"".join(
         kind + struct.pack("<I", len(data)) + data + b"\0" * (len(data) & 1)
@@ -88,3 +113,8 @@ def test_clean_webp_keeps_only_the_picture_byte_for_byte():
 def test_clean_webp_refuses_a_picture_that_needs_the_extended_format():
     with pytest.raises(ValueError):
         clean_webp(riff((b"VP8X", b"\0" * 10), (b"ALPH", b"a"), (b"VP8 ", b"p")))
+
+
+def test_cleaned_map_box_still_decodes():
+    cleaned = clean_webp((ASSETS / "MapBox.webp").read_bytes())
+    assert Image.open(io.BytesIO(cleaned)).convert("RGB").size == (960, 540)

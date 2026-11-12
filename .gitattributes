@@ -5,3 +5,5 @@
 # Treat build/icon assets as binary (no line-ending or diff processing).
 *.png binary
 *.ico binary
+*.webp binary
+*.ttf binary

@@ -2,6 +2,7 @@
 
 import json
 import logging
+from dataclasses import dataclass
 
 try:
     import websocket
@@ -193,3 +194,36 @@ def set_overlay_enabled(client, scene_items, current_scene_name, enabled, all_sc
         scene_item_id = scene_items[scene_name]
         if scene_item_id is not None:
             set_scene_item_enabled(client, scene_name, scene_item_id, enabled)
+
+
+@dataclass(frozen=True)
+class ConnectionCheck:
+    """The outcome of check_connection. `message` says why it failed, in the
+    same wording a failed start would use, and is empty on success.
+    `source_scene_count` is how many scenes carry the source, or None when
+    no source name was given or the check failed."""
+
+    ok: bool
+    message: str = ""
+    source_scene_count: int | None = None
+
+
+def check_connection(host, port, password, source_name="", connect=connect_obs):
+    """Connect once with these settings, count the scenes carrying
+    `source_name`, and disconnect. Blocks for up to the connect timeout, so
+    a window must run it off its own thread. Safe while MapHide's worker is
+    connected: OBS takes more than one client at a time."""
+    try:
+        client = connect(host, port, password)
+    except ObsConnectionError as exc:
+        return ConnectionCheck(ok=False, message=str(exc))
+    try:
+        count = None
+        if source_name:
+            scene_items = find_overlay_scene_items(client, source_name)
+            count = sum(item is not None for item in scene_items.values())
+        return ConnectionCheck(ok=True, source_scene_count=count)
+    except ObsConnectionError as exc:
+        return ConnectionCheck(ok=False, message=str(exc))
+    finally:
+        disconnect_obs(client)

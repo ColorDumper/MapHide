@@ -10,12 +10,22 @@ the window passes in, so they always run on the window's own thread.
 """
 
 import queue
+import threading
 
-from .config import default_config, form_ready, load_config, save_config
+from .config import (
+    connection_from_form,
+    default_config,
+    form_ready,
+    load_config,
+    save_config,
+)
+from .obs import ConnectionCheck, check_connection
 from .overlay import CONNECTED, MapHideService, human_ts, stop_wait_should_continue
 
 HISTORY_LINE_COUNT = 10
 RESTART_POLL_INTERVAL_MS = 50
+CHECK_POLL_INTERVAL_MS = 50
+CHECK_FAILED = "Could not check the connection."
 # A backstop, not a normal-case budget: the worker's own shutdown cleanup can
 # legitimately take a moment (one OBS request per scene carrying the overlay
 # source), so exit polls for it to actually finish rather than guessing at a
@@ -52,11 +62,19 @@ class AppController:
     """
 
     def __init__(
-        self, schedule, service=None, save=save_config, notify=_ignore, on_change=_ignore
+        self,
+        schedule,
+        service=None,
+        save=save_config,
+        notify=_ignore,
+        on_change=_ignore,
+        check=check_connection,
     ):
         self._schedule = schedule
         self.service = service if service is not None else MapHideService()
         self._save = save
+        self._check = check
+        self._check_thread = None
         self._notify = notify
         self._on_change = on_change
         self.running_config = default_config()
@@ -101,12 +119,47 @@ class AppController:
             and self.service.status.state == CONNECTED
         )
 
+    @property
+    def checking_connection(self):
+        return self._check_thread is not None
+
     # Testing.
 
     def set_manual_input(self, down):
         """Press (True) or release (False) the test button. It drives the
         overlay through the same decision as the hotkey."""
         self.service.set_manual_input(down)
+
+    def check_connection(self, host, port, password, source_name, on_done):
+        """Try connecting to OBS once with these form values, off the
+        window's thread, then call `on_done(ConnectionCheck)` on the window's
+        thread. Raises ValueError (with a message to show) if the host or
+        port can't be used. Returns False, and does nothing, while a check is
+        already running."""
+        if self._check_thread is not None:
+            return False
+        host, port_number = connection_from_form(host, port)
+        source_name = str(source_name).strip()
+        result = []
+
+        def run():
+            try:
+                result.append(self._check(host, port_number, password, source_name))
+            except Exception:
+                # A bug in the check must still end the wait in the window.
+                result.append(ConnectionCheck(ok=False, message=CHECK_FAILED))
+
+        self._check_thread = threading.Thread(target=run, name="ConnectionCheck", daemon=True)
+        self._check_thread.start()
+        self._schedule(CHECK_POLL_INTERVAL_MS, lambda: self._await_check(result, on_done))
+        return True
+
+    def _await_check(self, result, on_done):
+        if not result:
+            self._schedule(CHECK_POLL_INTERVAL_MS, lambda: self._await_check(result, on_done))
+            return
+        self._check_thread = None
+        on_done(result[0])
 
     # Settings.
 

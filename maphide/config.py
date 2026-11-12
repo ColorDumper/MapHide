@@ -148,6 +148,24 @@ def form_ready(cfg):
     )
 
 
+def connection_from_form(host, port):
+    """The OBS host and port from a settings form, as typed: (host, port).
+
+    Raises ValueError with a message fit to show the user when either is
+    missing or the port isn't a number.
+    """
+    host = str(host).strip()
+    port_text = str(port).strip()
+    if not host:
+        raise ValueError("OBS Host is required.")
+    if not port_text:
+        raise ValueError("OBS Port is required.")
+    try:
+        return host, int(port_text)
+    except ValueError as exc:
+        raise ValueError("OBS Port must be a number.") from exc
+
+
 def config_from_form(
     *,
     host,
@@ -167,27 +185,17 @@ def config_from_form(
     Raises ValueError with a message fit to show the user when something
     required is missing or a key or number can't be used.
     """
-    host = str(host).strip()
-    port_text = str(port).strip()
+    host, port_number = connection_from_form(host, port)
     scene_item_name = str(scene_item_name).strip()
     hotkey = str(hotkey).strip().upper()
     hide_hotkey = str(hide_hotkey).strip().upper()
 
-    if not host:
-        raise ValueError("OBS Host is required.")
-    if not port_text:
-        raise ValueError("OBS Port is required.")
     if not scene_item_name:
         raise ValueError("Overlay Source is required.")
     if not is_valid_show_hotkey(hotkey):
         raise ValueError(SHOW_KEY_HELP)
     if toggle_mode and not is_valid_hide_hotkey(hide_hotkey):
         raise ValueError(HIDE_KEY_HELP)
-
-    try:
-        port_number = int(port_text)
-    except ValueError as exc:
-        raise ValueError("OBS Port must be a number.") from exc
 
     return AppConfig(
         host=host,

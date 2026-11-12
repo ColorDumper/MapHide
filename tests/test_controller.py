@@ -2,11 +2,13 @@
 without a window, a worker thread or a real timer."""
 
 import queue
+import threading
 
 import pytest
 
 from maphide.config import AppConfig, default_config
 from maphide.controller import (
+    CHECK_FAILED,
     EXIT_WAIT_CEILING_MS,
     HISTORY_LINE_COUNT,
     RESTART_POLL_INTERVAL_MS,
@@ -14,6 +16,7 @@ from maphide.controller import (
     help_text,
     status_line,
 )
+from maphide.obs import ConnectionCheck
 from maphide.overlay import CONNECTED, STOPPED, STOPPING, ObsSnapshot, ServiceStatus
 
 
@@ -414,3 +417,67 @@ def test_the_test_button_is_passed_to_the_worker(h):
     h.controller.set_manual_input(False)
 
     assert h.service.manual_inputs == [True, False]
+
+
+def run_check(h, check, host="10.0.0.2", port="4455", source=" Overlay "):
+    results = []
+    controller = AppController(schedule=h.schedule, service=h.service, check=check)
+    started = controller.check_connection(host, port, "pw", source, results.append)
+    return controller, results, started
+
+
+def finish_check(h, controller):
+    controller._check_thread.join(timeout=5)
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+
+def test_a_connection_check_reports_back_on_the_windows_thread(h):
+    calls = []
+
+    def check(host, port, password, source_name):
+        calls.append((host, port, password, source_name))
+        return ConnectionCheck(ok=True, source_scene_count=2)
+
+    controller, results, started = run_check(h, check)
+    assert started is True
+    assert controller.checking_connection is True
+    finish_check(h, controller)
+
+    assert calls == [("10.0.0.2", 4455, "pw", "Overlay")]
+    assert results == [ConnectionCheck(ok=True, source_scene_count=2)]
+    assert controller.checking_connection is False
+
+
+def test_a_connection_check_with_an_unusable_port_says_so_without_trying(h):
+    controller = AppController(schedule=h.schedule, service=h.service, check=None)
+
+    with pytest.raises(ValueError, match="OBS Port must be a number."):
+        controller.check_connection("10.0.0.2", "44a5", "", "", lambda _result: None)
+    assert controller.checking_connection is False
+
+
+def test_only_one_connection_check_runs_at_a_time(h):
+    release = threading.Event()
+
+    def slow_check(*_args):
+        release.wait(timeout=5)
+        return ConnectionCheck(ok=True)
+
+    controller, results, _ = run_check(h, slow_check)
+    assert controller.check_connection("10.0.0.2", "4455", "", "", results.append) is False
+
+    release.set()
+    finish_check(h, controller)
+    assert results == [ConnectionCheck(ok=True)]
+
+
+def test_a_connection_check_that_breaks_still_reports_back(h):
+    def broken_check(*_args):
+        raise RuntimeError("bug")
+
+    controller, results, _ = run_check(h, broken_check)
+    finish_check(h, controller)
+
+    assert results == [ConnectionCheck(ok=False, message=CHECK_FAILED)]
+    assert controller.checking_connection is False

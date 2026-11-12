@@ -1,23 +1,34 @@
-"""Starts MapHide's window.
+"""MapHide's window: a Qt Quick front end on the controller.
 
-The window's state is simulated here, so its look and feel can be judged
-without OBS.
+Main.qml draws; the Backend here hands it what to draw and forwards what the
+user does to the controller. The rules for what the screen shows live in
+view.py, where they are tested without Qt.
 """
 
 import sys
-import time
 from dataclasses import asdict
 
 from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 
+from ..config import config_from_form
+from ..controller import HISTORY_NOTICE, AppController
+from ..fieldlog import field_line
+from ..logs import plain_reason
+from ..overlay import human_ts
 from ..paths import APP_DIR, APP_USER_MODEL_ID, APP_VERSION, ICON_RUNTIME_PNG_PATH
-from ..themes import DEFAULT_THEME, THEMES
+from ..themes import THEMES, theme_name
 from ..winutil import apply_dark_title_bar, set_app_id
+from .view import form_values, main_view, new_entries
 
 QML_PATH = APP_DIR / "maphide" / "qt" / "Main.qml"
 FONTS_DIR = APP_DIR / "assets" / "fonts"
+# How often the window catches up with the worker: its events, the live
+# scene, and whether the map is covered.
+POLL_INTERVAL_MS = 100
+AUTO_CONNECT_DELAY_MS = 250
+CONFIG_NOT_LOADED = "Settings couldn't be read, so the defaults are in use."
 
 
 def argb(color, opacity):
@@ -39,64 +50,113 @@ def theme_colors(name):
     return colors
 
 
+def _schedule(milliseconds, callback):
+    QTimer.singleShot(milliseconds, callback)
+
+
 class Backend(QObject):
     changed = Signal()
-    # time, text, kind ("n" plain, "r" covered, "g" linked)
+    themeChanged = Signal()
+    # time, text, tone - see fieldlog
     lineAdded = Signal(str, str, str)
+    # The window should hide now: MapHide is closing.
+    hideRequested = Signal()
 
-    def __init__(self):
+    def __init__(self, controller=None, quit_app=None):
         super().__init__()
-        self._state = "stopped"
-        self._toggle = False
-        self._show_key = "G"
-        self._hide_key = "H"
-        self._delay_ms = 120
-        self._theme = DEFAULT_THEME
-        self._link_timer = QTimer(self, singleShot=True, interval=1300)
-        self._link_timer.timeout.connect(self._link_up)
-        self._hide_timer = QTimer(self, singleShot=True)
-        self._hide_timer.timeout.connect(self._drop_cover)
+        self.controller = controller or AppController(
+            schedule=_schedule, notify=self.notice, on_change=self.refresh
+        )
+        # exit(), not quit(): Qt's quit() first asks every window to close
+        # and gives up if one refuses - and this window refuses until the
+        # worker has finished hiding the overlay, which is when this runs.
+        self._quit_app = quit_app or (lambda: QGuiApplication.exit(0))
+        self._view = main_view(self.controller)
+        self._last_entry = None
+        self._form = form_values(self.controller.running_config)
+        self._poll_timer = QTimer(self, interval=POLL_INTERVAL_MS)
+        self._poll_timer.timeout.connect(self._poll)
 
-    def _add(self, message, kind="n"):
-        self.lineAdded.emit(time.strftime("%H:%M:%S"), message, kind)
+    def load(self):
+        """Read the saved settings and start watching the worker. Call once
+        the window exists, so it sees the first lines of the field log."""
+        cfg, loaded = self.controller.load()
+        self._form = form_values(cfg)
+        self.themeChanged.emit()
+        if not loaded:
+            self.notice(CONFIG_NOT_LOADED)
+        self.refresh()
+        self._poll_timer.start()
+        if cfg.auto_connect:
+            QTimer.singleShot(AUTO_CONNECT_DELAY_MS, self._start)
 
-    def _set(self, state, message=None, kind="n"):
-        self._state = state
-        if message:
-            self._add(message, kind)
-        self.changed.emit()
+    # Keeping the window current.
 
-    def _link_up(self):
-        self._set("connected", "> link up · obs", "g")
+    def _poll(self):
+        self.controller.drain_events()
+        self.refresh()
 
-    def _drop_cover(self):
-        self._set("connected", "> cover dropped")
+    def refresh(self):
+        for entry in new_entries(self.controller.history, self._last_entry):
+            line = field_line(entry)
+            self.lineAdded.emit(line.time, line.text, line.tone)
+            self._last_entry = entry
+        view = main_view(self.controller)
+        if view != self._view:
+            self._view = view
+            self.changed.emit()
+
+    def notice(self, text):
+        """Tell the user something in the field log, such as why Start
+        didn't go ahead."""
+        self.controller.add_history(human_ts(), text, HISTORY_NOTICE)
+        self.refresh()
+
+    # What the window draws.
 
     @Property(str, notify=changed)
-    def state(self):
-        return self._state
+    def screen(self):
+        return self._view.screen
+
+    @Property(str, notify=changed)
+    def hint(self):
+        return self._view.hint
 
     @Property(str, notify=changed)
     def scene(self):
-        return {"stopped": "—", "connecting": "…"}.get(self._state, "Gameplay")
+        return self._view.scene
 
     @Property(str, notify=changed)
     def mode(self):
-        if self._toggle:
-            return f"TOGGLE · {self._show_key}/{self._hide_key}"
-        return f"HOLD · {self._show_key}"
+        return self._view.mode
 
     @Property(str, notify=changed)
     def showKey(self):
-        return self._show_key
+        return self._view.show_key
 
     @Property(bool, notify=changed)
     def toggleMode(self):
-        return self._toggle
+        return self._view.toggle_mode
 
-    @Property("QVariantMap", notify=changed)
+    @Property(bool, notify=changed)
+    def primaryIsStop(self):
+        return self._view.primary_is_stop
+
+    @Property(bool, notify=changed)
+    def primaryEnabled(self):
+        return self._view.primary_enabled
+
+    @Property(bool, notify=changed)
+    def testEnabled(self):
+        return self._view.test_enabled
+
+    @Property("QVariantMap", notify=themeChanged)
     def theme(self):
-        return theme_colors(self._theme)
+        return theme_colors(theme_name(self._form["theme"]))
+
+    @Property(str, notify=themeChanged)
+    def themeName(self):
+        return theme_name(self._form["theme"])
 
     @Property(str, constant=True)
     def version(self):
@@ -106,35 +166,44 @@ class Backend(QObject):
     def assets(self):
         return QUrl.fromLocalFile(str(APP_DIR / "assets")).toString()
 
+    # What the user does.
+
+    def _start(self):
+        try:
+            self.controller.start(config_from_form(**self._form))
+        except ValueError as exc:
+            self.notice(str(exc))
+        except OSError as exc:
+            self.notice(f"Couldn't save settings: {plain_reason(exc)}")
+        except RuntimeError as exc:
+            self.notice(str(exc))
+
     @Slot()
     def primary(self):
-        if self._state == "stopped":
-            self._set("connecting", "> acquiring link…")
-            self._link_timer.start()
+        if self._view.primary_is_stop:
+            self.controller.stop()
         else:
-            self._link_timer.stop()
-            self._hide_timer.stop()
-            self._set("stopped", "> stopped")
+            self._start()
 
     @Slot()
     def holdDown(self):
-        if self._state not in ("connected", "covering"):
-            return
-        self._hide_timer.stop()
-        if self._toggle and self._state == "covering":
-            self._set("connected", "> cover dropped")
-        elif self._state == "connected":
-            self._set("covering", "> map covered", "r")
+        self.controller.set_manual_input(True)
 
     @Slot()
     def holdUp(self):
-        if not self._toggle and self._state == "covering":
-            self._hide_timer.start(self._delay_ms)
+        self.controller.set_manual_input(False)
 
     @Slot(str)
     def setTheme(self, name):
-        self._theme = name
-        self.changed.emit()
+        self._form["theme"] = theme_name(name)
+        self.themeChanged.emit()
+
+    @Slot()
+    def requestClose(self):
+        """The window's close button: stop the worker, letting it hide the
+        overlay, then quit."""
+        if self.controller.begin_exit(self._quit_app):
+            self.hideRequested.emit()
 
 
 def load_fonts():
@@ -160,7 +229,9 @@ def main():
         apply_dark_title_bar(int(window.winId()), backend.theme["title_bar"])
 
     paint_title_bar()
-    backend.changed.connect(paint_title_bar)
+    backend.themeChanged.connect(paint_title_bar)
+    backend.hideRequested.connect(window.hide)
+    backend.load()
     result = app.exec()
     # Tear the window down while the backend it reads from still exists.
     del engine

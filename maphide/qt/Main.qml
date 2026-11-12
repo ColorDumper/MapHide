@@ -6,9 +6,8 @@ Window {
     id: win
 
     readonly property var t: backend.theme
-    readonly property string st: backend.state
-    readonly property bool running: st !== "stopped"
-    readonly property bool linked: st === "connected" || st === "covering"
+    readonly property string st: backend.screen
+    readonly property bool running: backend.primaryIsStop
     readonly property color coverRed: "#d9483b"
     readonly property color coverRedText: "#ff7a6b"
     property bool drawerOpen: false
@@ -22,6 +21,12 @@ Window {
     visible: true
     title: "MapHide"
     color: t.bg
+
+    // Closing stops the worker first, so it can hide the overlay in OBS.
+    onClosing: (close) => {
+        close.accepted = false
+        backend.requestClose()
+    }
 
     // Letter spacing as a fraction of the font size; Qt wants pixels.
     function em(size, amount) { return size * amount }
@@ -456,13 +461,9 @@ Window {
                         color: ({ stopped: win.t.muted, connecting: win.t.warn, covering: win.coverRedText })[win.st] || win.t.text
                     }
                     Label {
-                        text: ({
-                            stopped: "Start MapHide to link up with OBS.",
-                            connecting: "Looking for OBS on the streaming PC.",
-                            covering: "Viewers see the cover, not your map."
-                        })[win.st] || (backend.toggleMode
-                            ? "Press " + backend.showKey + " in game to cover the map."
-                            : "Hold " + backend.showKey + " in game and the map is covered.")
+                        width: parent.width
+                        text: backend.hint
+                        wrapMode: Text.Wrap
                         font.pixelSize: 13
                         color: win.t.muted
                     }
@@ -476,6 +477,8 @@ Window {
                         width: (parent.width - 10) / 2
                         height: 50
                         base: 4
+                        enabled: backend.primaryEnabled
+                        opacity: enabled ? 1 : 0.4
                         fill: win.running ? win.t.glass_button : win.t.accent
                         edge: win.running ? win.t.border2 : win.t.accent_deep
                         onClicked: backend.primary()
@@ -493,7 +496,7 @@ Window {
                         width: (parent.width - 10) / 2
                         height: 50
                         base: 4
-                        enabled: win.linked
+                        enabled: backend.testEnabled
                         opacity: enabled ? 1 : 0.4
                         fill: win.t.glass_button
                         edge: win.t.border2
@@ -562,7 +565,7 @@ Window {
                                 id: line
                                 required property string time
                                 required property string text
-                                required property string kind
+                                required property string tone
                                 property real reveal: 0
                                 width: lineRow.width * Math.floor(reveal * 18) / 18
                                 height: lineRow.height
@@ -575,8 +578,11 @@ Window {
                                     Mono {
                                         text: line.text
                                         font.pixelSize: 12
-                                        color: line.kind === "r" ? win.coverRedText
-                                            : line.kind === "g" ? win.t.ok : win.t.text
+                                        color: ({
+                                            linked: win.t.ok,
+                                            covered: win.coverRedText,
+                                            warning: win.t.warn
+                                        })[line.tone] || win.t.text
                                     }
                                 }
                             }
@@ -584,8 +590,8 @@ Window {
                     }
                     Connections {
                         target: backend
-                        function onLineAdded(time, text, kind) {
-                            logModel.insert(0, { time: time, text: text, kind: kind })
+                        function onLineAdded(time, text, tone) {
+                            logModel.insert(0, { time: time, text: text, tone: tone })
                             if (logModel.count > 6)
                                 logModel.remove(6, logModel.count - 6)
                         }
@@ -712,7 +718,7 @@ Window {
                                     anchors.fill: parent
                                     color: "transparent"
                                     border.width: 2
-                                    border.color: win.t.label.toLowerCase() === tile.modelData.name ? win.t.accent : win.t.border
+                                    border.color: backend.themeName === tile.modelData.name ? win.t.accent : win.t.border
                                 }
                                 Column {
                                     x: 12; y: 12

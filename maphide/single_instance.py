@@ -2,6 +2,7 @@
 the same hotkey and OBS connection."""
 
 import ctypes
+from ctypes import wintypes
 
 # use_last_error=True routes GetLastError through ctypes' own thread-safe
 # copy (read back with ctypes.get_last_error()) instead of the raw Win32
@@ -10,6 +11,18 @@ import ctypes
 # so nothing else needs to run in between for this to matter here - but it's
 # the correct, documented way to read it regardless.
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+# Declared so handles keep their full 64 bits; ctypes would otherwise read
+# them as 32-bit ints.
+_kernel32.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
+_kernel32.CreateMutexW.restype = wintypes.HANDLE
+_kernel32.OpenMutexW.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR)
+_kernel32.OpenMutexW.restype = wintypes.HANDLE
+_kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+_kernel32.CloseHandle.restype = wintypes.BOOL
+_kernel32.WaitNamedPipeW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD)
+_kernel32.WaitNamedPipeW.restype = wintypes.BOOL
+_kernel32.ProcessIdToSessionId.argtypes = (wintypes.DWORD, ctypes.POINTER(wintypes.DWORD))
+_kernel32.ProcessIdToSessionId.restype = wintypes.BOOL
 
 MUTEX_NAME = "Local\\MapHide-SingleInstance"
 ERROR_ALREADY_EXISTS = 183
@@ -54,15 +67,28 @@ PIPE_WAIT_MS = 2000
 PIPE_PREFIX = r"\\.\pipe" + "\\"
 
 
-def command_pipe_name(user=None):
-    """The running copy's command pipe name for `user` (this Windows user by
-    default), as Qt's QLocalServer takes it: without the pipe path prefix."""
+def _session_id():
+    """The Windows session this process runs in (one per signed-in user)."""
+    import os
+
+    session = wintypes.DWORD()
+    if not _kernel32.ProcessIdToSessionId(os.getpid(), ctypes.byref(session)):
+        return 0
+    return session.value
+
+
+def command_pipe_name(user=None, session=None):
+    """The running copy's command pipe name for `user` in Windows `session`
+    (this user and session by default), as Qt's QLocalServer takes it:
+    without the pipe path prefix. Scoped to the session like MUTEX_NAME, so
+    a copy signed in elsewhere at the same time is never reached."""
     import getpass
     import hashlib
 
     user = user if user is not None else getpass.getuser()
-    digest = hashlib.sha256(user.lower().encode("utf-8")).hexdigest()[:16]
-    return f"MapHide-{digest}"
+    session = session if session is not None else _session_id()
+    key = f"{user.lower()}|{session}".encode("utf-8")
+    return f"MapHide-{hashlib.sha256(key).hexdigest()[:16]}"
 
 
 def send_command(command, pipe_name=None, wait_ms=PIPE_WAIT_MS):

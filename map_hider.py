@@ -39,6 +39,8 @@ SHUTDOWN_WAIT_CEILING_SECONDS = 15
 # than the window's own exit backstop, so a slow but working exit is never
 # reported as a failure.
 QUIT_WAIT_SECONDS = 20
+# How long `--quit` keeps trying to reach a copy that isn't listening yet.
+QUIT_DELIVERY_SECONDS = 5
 ALREADY_RUNNING_MESSAGE = "MapHide is already running."
 ALREADY_RUNNING_NOTICE_MUTEX = "Local\\MapHide-AlreadyRunningNotice"
 # Distinct from the main window's title ("MapHide") so FindWindowW below can
@@ -127,11 +129,21 @@ def quit_running_copy(wait_seconds=QUIT_WAIT_SECONDS):
     does, so it hides the overlay first, and wait for it to finish. Returns
     the exit code: 0 once no copy is running, 1 if one is still running.
     For installers and updaters, which need MapHide closed first."""
+    import time
+
     from maphide.single_instance import wait_until_closed
 
     if not is_running():
         return 0
-    send_command(COMMAND_QUIT)
+    # A copy that has only just started may not be listening yet; one run
+    # with --headless never listens, and won't be closed this way.
+    deadline = time.monotonic() + QUIT_DELIVERY_SECONDS
+    while not send_command(COMMAND_QUIT):
+        if not is_running():
+            return 0
+        if time.monotonic() >= deadline:
+            return 1
+        time.sleep(0.25)
     return 0 if wait_until_closed(wait_seconds) else 1
 
 

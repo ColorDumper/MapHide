@@ -217,3 +217,24 @@ def test_a_second_headless_launch_only_prints(monkeypatch):
 
     assert code == 1
     assert shown == [True]
+
+
+def test_quit_gives_up_quickly_when_the_running_copy_cannot_be_reached(monkeypatch):
+    # A copy run with --headless never listens for commands.
+    monkeypatch.setattr(map_hider, "is_running", lambda: True)
+    monkeypatch.setattr(map_hider, "send_command", lambda command: False)
+    monkeypatch.setattr(map_hider, "QUIT_DELIVERY_SECONDS", 0.3)
+    monkeypatch.setattr(
+        "maphide.single_instance.wait_until_closed",
+        lambda seconds: (_ for _ in ()).throw(AssertionError("waited for an unreached copy")),
+    )
+
+    assert map_hider.quit_running_copy() == 1
+
+
+def test_quit_succeeds_if_the_copy_closes_while_it_retries(monkeypatch):
+    running = iter([True, False])
+    monkeypatch.setattr(map_hider, "is_running", lambda: next(running))
+    monkeypatch.setattr(map_hider, "send_command", lambda command: False)
+
+    assert map_hider.quit_running_copy() == 0

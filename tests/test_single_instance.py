@@ -71,3 +71,9 @@ def test_waiting_for_a_copy_that_never_closes_gives_up():
 
 def test_waiting_with_no_copy_running_returns_at_once():
     assert single_instance.wait_until_closed(5, name=_unique_name()) is True
+
+
+def test_the_command_pipe_is_scoped_to_the_windows_session():
+    assert single_instance.command_pipe_name("Alex", session=1) != (
+        single_instance.command_pipe_name("Alex", session=2)
+    )

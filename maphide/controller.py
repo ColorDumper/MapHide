@@ -218,10 +218,12 @@ class AppController:
 
     def start(self, cfg):
         """Save `cfg`, unless the file already holds it, and start the
-        worker with it. Raises OSError if the settings can't be saved,
-        RuntimeError if the worker is already running."""
+        worker with it. A save shows in the field log, as Save's does.
+        Raises OSError if the settings can't be saved, RuntimeError if the
+        worker is already running."""
         if cfg != self._saved_config:
             self._write(cfg)
+            self.add_history(human_ts(), "Config saved.", HISTORY_SETTINGS_SAVED)
         self.service.start(cfg)
         self._worker_config = cfg
         self.running_config = cfg

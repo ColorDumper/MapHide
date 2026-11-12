@@ -50,6 +50,8 @@ All notable changes to MapHide are documented here.
 - Fixed your settings being lost if the PC crashed or lost power while
   MapHide was saving them. Start also no longer saves settings that haven't
   changed.
+- Changed Start to say in the field log when it saves changes you made in
+  Settings without pressing Save.
 
 ## v0.2.6 - 2026-10-27
 

@@ -174,13 +174,22 @@ def test_start_with_the_settings_just_loaded_does_not_save_them_again(h):
     assert h.service.started_with == [cfg]
 
 
-def test_start_with_changed_settings_saves_them(h):
+def test_start_with_changed_settings_saves_them_and_says_so(h):
     h.controller.load(load=lambda: make_config(hotkey="M"))
     changed = make_config(hotkey="K")
 
     h.controller.start(changed)
 
     assert h.saved == [changed]
+    assert [entry.code for entry in h.controller.history] == [HISTORY_SETTINGS_SAVED]
+
+
+def test_start_that_saves_nothing_says_nothing_about_saving(h):
+    cfg, _ = h.controller.load(load=lambda: make_config(hotkey="M"))
+
+    h.controller.start(cfg)
+
+    assert h.controller.history == []
 
 
 def test_start_after_a_save_does_not_save_the_same_settings_again(h):

@@ -225,6 +225,25 @@ def test_start_runs_the_worker_with_the_form(h):
     assert h.backend.primaryIsStop
 
 
+def test_start_with_unsaved_changes_says_it_saved_them(h):
+    fill_form(h.backend, hotkey="M")
+
+    h.backend.primary()
+
+    assert h.saved[-1].hotkey == "M"
+    assert "> settings saved" in [line[1] for line in h.lines]
+
+
+def test_start_with_nothing_changed_says_nothing_about_saving(h):
+    fill_form(h.backend)
+    h.backend.save()
+    h.lines.clear()
+
+    h.backend.primary()
+
+    assert "> settings saved" not in [line[1] for line in h.lines]
+
+
 def test_stop_stops_the_worker(h):
     fill_form(h.backend)
     h.backend.primary()

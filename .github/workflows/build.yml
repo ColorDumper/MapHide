@@ -21,14 +21,17 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: '3.12'
+          # The same Python the project uses everywhere; see .python-version.
+          python-version-file: .python-version
           cache: pip
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        # Every package is pinned with checksums; a download that doesn't
+        # match them fails the install.
+        run: pip install --require-hashes -r requirements-dev.txt
 
       - name: Lint
         run: |
@@ -58,14 +61,17 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: '3.12'
+          # The same Python the project uses everywhere; see .python-version.
+          python-version-file: .python-version
           cache: pip
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        # Every package is pinned with checksums; a download that doesn't
+        # match them fails the install.
+        run: pip install --require-hashes -r requirements-dev.txt
 
       # A tagged build must match the version in maphide/version.py, the one
       # place it is written; the exe's file properties are generated from it.

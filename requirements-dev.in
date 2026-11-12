@@ -1,0 +1,11 @@
+# Everything for working on MapHide: what it needs to run, plus the tools
+# to test and build it. Edit this file, not requirements-dev.txt; see
+# requirements.in for how to regenerate the .txt files.
+-r requirements.in
+# tools/make_assets.py and the asset tests.
+Pillow==13.0.0
+# Regenerates the .txt files from the .in files.
+pip-tools==7.6.2
+pyinstaller==6.22.3
+pytest==9.2.0
+ruff==0.17.3

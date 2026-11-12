@@ -8,7 +8,12 @@ of the window.
 
 from dataclasses import dataclass
 
-from .controller import HISTORY_DEFAULTS_RESTORED, HISTORY_NOTICE, HISTORY_SETTINGS_SAVED
+from .controller import (
+    HISTORY_DEFAULTS_RESTORED,
+    HISTORY_NOTICE,
+    HISTORY_SETTINGS_SAVED,
+    HISTORY_UPDATE_AVAILABLE,
+)
 from .obs import OBS_BAD_PASSWORD, OBS_LINK_LOST, OBS_OVERLAY_MAY_REMAIN, OBS_UNREACHABLE
 from .overlay import (
     EVENT_CONNECT_FAILED,
@@ -91,6 +96,8 @@ def _wording(entry):
         return "> settings saved", PLAIN
     if code == HISTORY_DEFAULTS_RESTORED:
         return "> defaults restored", PLAIN
+    if code == HISTORY_UPDATE_AVAILABLE and entry.subject:
+        return f"> update available · v{entry.subject} · see settings", LINKED
     if code == HISTORY_NOTICE:
         return f"> {entry.message}", WARNING
     return f"> {entry.message}", PLAIN

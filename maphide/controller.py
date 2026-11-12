@@ -38,6 +38,8 @@ EXIT_WAIT_CEILING_MS = 15_000
 # EVENT_* codes.
 HISTORY_SETTINGS_SAVED = "settings_saved"
 HISTORY_DEFAULTS_RESTORED = "defaults_restored"
+# A newer MapHide is out; `subject` is its version.
+HISTORY_UPDATE_AVAILABLE = "update_available"
 # A message the window itself puts in the history, such as a setting it
 # can't use.
 HISTORY_NOTICE = "notice"

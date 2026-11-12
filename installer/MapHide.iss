@@ -75,6 +75,8 @@ Name: "{autodesktop}\MapHide"; Filename: "{app}\MapHide.exe"; AppUserModelID: "{
 
 [Run]
 Filename: "{app}\MapHide.exe"; Description: "{cm:LaunchProgram,MapHide}"; Flags: nowait postinstall skipifsilent
+; MapHide's own updater runs this setup with /RELAUNCH=1 to open it again after.
+Filename: "{app}\MapHide.exe"; Flags: nowait; Check: RelaunchRequested
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\_internal"
@@ -82,6 +84,11 @@ Type: filesandordirs; Name: "{app}\_internal"
 [Code]
 var
   RemoveSettings: Boolean;
+
+function RelaunchRequested(): Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
+end;
 
 // Close a running MapHide the same way Exit in the tray does, so the overlay
 // is hidden in OBS before its files are replaced or removed.

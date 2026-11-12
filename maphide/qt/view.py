@@ -122,6 +122,7 @@ FORM_FIELDS = (
     "auto_reconnect",
     "log_enabled",
     "theme",
+    "check_updates",
 )
 
 

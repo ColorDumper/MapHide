@@ -41,6 +41,12 @@ All notable changes to MapHide are documented here.
   or shut down while MapHide was running.
 - Added an installer, which adds MapHide to the Start menu and to Installed
   apps in Windows. Uninstalling asks whether to keep your settings.
+- Added a Check for updates button under About in Settings. When a new
+  version is out, Update installs it and reopens MapHide with your settings
+  kept.
+- Added a Check for updates switch under Behavior in Settings, on by default,
+  which looks for a new version when MapHide opens. The field log says when
+  one is out.
 
 ## v0.2.6 - 2026-10-27
 

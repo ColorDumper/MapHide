@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Shapes
 
-// The settings drawer's contents: seven numbered sections, then Reset and
+// The settings drawer's contents: numbered sections, then Reset and
 // Save. Edits stay in the form, unapplied, until Save.
 Item {
     id: settings
@@ -425,6 +425,15 @@ Item {
                             checked: settings.f.log_enabled
                             onToggled: (on) => backend.setField("log_enabled", on)
                         }
+                        Switch {
+                            width: parent.width
+                            visible: backend.updatesShown
+                            divider: true
+                            label: "Check for updates"
+                            description: "Look for a new version when MapHide opens"
+                            checked: settings.f.check_updates
+                            onToggled: (on) => backend.setField("check_updates", on)
+                        }
                     }
                 }
             }
@@ -488,41 +497,139 @@ Item {
 
             // 07 ABOUT
             Column {
+                id: about
                 width: parent.width
                 spacing: 8
+                readonly property string phase: backend.updateState
+                readonly property bool found: backend.updateVersion !== ""
+                // What the button does now: "check", "install", "page", or ""
+                // while busy.
+                readonly property string action: !backend.updatesShown ? ""
+                    : phase === "checking" || phase === "downloading" || phase === "installing" ? ""
+                    : found && (phase === "available" || phase === "failed")
+                        ? (backend.canInstallUpdate ? "install" : "page")
+                    : "check"
+                readonly property string status: ({
+                    checking: "Checking GitHub for a newer version…",
+                    latest: "You're on the latest version",
+                    available: backend.canInstallUpdate
+                        ? "v" + backend.updateVersion + " is out. MapHide reopens after updating; settings stay."
+                        : "v" + backend.updateVersion + " is out on GitHub.",
+                    downloading: "Downloading v" + backend.updateVersion + "… " + backend.updatePercent + "%",
+                    installing: "Installing. MapHide will open again.",
+                    failed: backend.updateMessage
+                })[phase] || ""
+                // "You're on the latest version" shows for a moment, then the
+                // row goes back to normal.
+                Timer {
+                    interval: 4000
+                    running: about.phase === "latest"
+                    onTriggered: backend.clearUpdateResult()
+                }
                 SectionHeading { number: "07"; title: "ABOUT" }
                 Rectangle {
                     width: parent.width
-                    height: 54
+                    height: Math.max(54, aboutText.height + 20)
                     color: settings.t.panel
                     border.color: settings.t.border
-                    Row {
+                    Image {
+                        id: aboutLogo
                         x: 12
+                        width: 28
+                        height: 28
                         anchors.verticalCenter: parent.verticalCenter
-                        spacing: 12
-                        Image {
-                            width: 28
-                            height: 28
-                            anchors.verticalCenter: parent.verticalCenter
-                            source: backend.assets + "/MapHide_Icon_64.png"
-                            mipmap: true
+                        source: backend.assets + "/MapHide_Icon_64.png"
+                        mipmap: true
+                    }
+                    Column {
+                        id: aboutText
+                        anchors.left: aboutLogo.right
+                        anchors.leftMargin: 12
+                        anchors.right: updateButton.visible ? updateButton.left : parent.right
+                        anchors.rightMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        Mono { text: "MapHide " + backend.version; font.pixelSize: 13 }
+                        Label {
+                            width: parent.width
+                            visible: about.status !== ""
+                            text: about.status
+                            wrapMode: Text.Wrap
+                            font.pixelSize: 12
+                            color: about.phase === "failed" ? settings.t.warn
+                                : about.phase === "latest" ? settings.t.ok
+                                : about.phase === "available" ? settings.t.accent_text
+                                : settings.t.muted
                         }
-                        Column {
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 2
-                            Mono { text: "MapHide " + backend.version; font.pixelSize: 13 }
-                            Label {
-                                text: "github.com/ColorDumper/MapHide"
-                                font.pixelSize: 12
-                                font.underline: aboutLink.containsMouse
-                                color: settings.t.accent_text
-                                MouseArea {
-                                    id: aboutLink
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: Qt.openUrlExternally("https://github.com/ColorDumper/MapHide")
+                        Label {
+                            text: "github.com/ColorDumper/MapHide"
+                            font.pixelSize: 12
+                            font.underline: aboutLink.containsMouse
+                            color: settings.t.accent_text
+                            MouseArea {
+                                id: aboutLink
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Qt.openUrlExternally("https://github.com/ColorDumper/MapHide")
+                            }
+                        }
+                    }
+                    PressButton {
+                        id: updateButton
+                        objectName: "updateButton"
+                        visible: backend.updatesShown
+                        anchors.right: parent.right
+                        anchors.rightMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.max(118, updateButtonRow.width + 24)
+                        height: 36
+                        enabled: about.action !== ""
+                        fill: about.action === "install" ? settings.t.accent : settings.t.panel2
+                        edge: about.action === "install" ? settings.t.accent_deep : settings.t.border2
+                        onClicked: {
+                            if (about.action === "install")
+                                backend.installUpdate()
+                            else if (about.action === "page")
+                                Qt.openUrlExternally(backend.releasesPage)
+                            else if (about.action === "check")
+                                backend.checkForUpdates()
+                        }
+                        Row {
+                            id: updateButtonRow
+                            anchors.centerIn: parent
+                            spacing: 6
+                            Spinner {
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: about.action === "" && backend.updatesShown
+                            }
+                            // A tick once MapHide is up to date.
+                            Shape {
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: about.phase === "latest"
+                                width: 13
+                                height: 13
+                                preferredRendererType: Shape.CurveRenderer
+                                ShapePath {
+                                    strokeColor: settings.t.ok
+                                    strokeWidth: 2
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    joinStyle: ShapePath.RoundJoin
+                                    PathSvg { path: "M11 3.5 L5 10 L2 7" }
                                 }
+                            }
+                            Condensed {
+                                font.pixelSize: 14
+                                font.letterSpacing: 14 * 0.08
+                                color: about.action === "install" ? settings.t.on_accent : settings.t.text
+                                text: about.action === "install"
+                                    ? (about.phase === "failed" ? "TRY AGAIN" : "UPDATE")
+                                    : about.action === "page" ? "GET IT"
+                                    : about.phase === "checking" ? "CHECKING"
+                                    : about.action === "" ? "UPDATING"
+                                    : about.phase === "latest" ? "UP TO DATE"
+                                    : "CHECK FOR UPDATES"
                             }
                         }
                     }

@@ -13,6 +13,7 @@ from maphide.obs import ConnectionCheck  # noqa: E402
 from maphide.overlay import CONNECTED, CONNECTING, ServiceStatus  # noqa: E402
 from maphide.qt.app import WM_ENDSESSION, Backend, ends_session  # noqa: E402
 from maphide.qt.view import QT_KEY_ESCAPE, SCREEN_CONNECTING, SOURCE_FOLLOWS  # noqa: E402
+from maphide.updates import Release  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -43,9 +44,19 @@ class Harness:
         self.checks = []
         self.check_result = ConnectionCheck(ok=True, source_scene_count=3)
         self.quits = 0
+        self.latest = Release("0.2.0")
+        self.installers = []
         self.backend = Backend(
             quit_app=self._quit,
             schedule=self.schedule,
+            update_checks=True,
+            updater_options={
+                "current": "0.2.6",
+                "fetch": lambda: self.latest,
+                "download": lambda release, folder, progress: "setup.exe",
+                "launch": self.installers.append,
+                "can_install": True,
+            },
             service=self.service,
             save=self.saved.append,
             check=self._check,
@@ -69,6 +80,14 @@ class Harness:
     def load(self, load):
         self.backend.load(load=load)
         self.backend._poll_timer.stop()
+
+    def run_updater(self):
+        """Run what's scheduled, letting the updater's thread finish each
+        time it has one running, until nothing is left."""
+        while self.schedule.pending:
+            if self.backend.updater.thread is not None:
+                self.backend.updater.thread.join(timeout=5)
+            self.schedule.run_next()
 
     def run_check(self):
         """Let the connection check's thread finish and its result land."""
@@ -340,3 +359,64 @@ def test_only_a_real_session_end_counts():
     # Windows sends it with wParam 0 when the sign-out was cancelled.
     assert not ends_session(WM_ENDSESSION, 0)
     assert not ends_session(0x0011, 1)  # WM_QUERYENDSESSION only asks
+
+
+# Updates.
+
+NEW_RELEASE = Release(
+    "0.3.0", "https://github.com/ColorDumper/MapHide/releases/download/x", 1, "0" * 64
+)
+
+
+def test_opening_maphide_checks_for_updates_and_notes_a_new_one(h):
+    h.latest = NEW_RELEASE
+    h.load(lambda: make_config())
+
+    h.run_updater()
+
+    assert h.backend.updateState == "available"
+    assert h.backend.updateVersion == "0.3.0"
+    assert h.lines[-1][1] == "> update available · v0.3.0 · see settings"
+
+
+def test_no_check_at_startup_when_it_is_turned_off(h):
+    h.latest = NEW_RELEASE
+    h.load(lambda: make_config(check_updates=False))
+
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+    assert h.backend.updateState == "idle"
+
+
+def test_a_store_copy_never_checks():
+    harness = Harness()
+    harness.backend._update_checks = False
+    harness.load(lambda: make_config())
+
+    while harness.schedule.pending:
+        harness.schedule.run_next()
+    harness.backend.checkForUpdates()
+
+    assert harness.backend.updateState == "idle"
+
+
+def test_check_now_says_when_maphide_is_up_to_date(h):
+    h.backend.checkForUpdates()
+    h.run_updater()
+
+    assert h.backend.updateState == "latest"
+
+
+def test_update_runs_the_installer_and_closes_maphide(h):
+    h.latest = NEW_RELEASE
+    h.backend.checkForUpdates()
+    h.run_updater()
+
+    h.backend.installUpdate()
+    h.run_updater()
+
+    assert h.installers == ["setup.exe"]
+    assert h.backend.updateState == "installing"
+    assert h.hides == [True]
+    assert h.quits == 1

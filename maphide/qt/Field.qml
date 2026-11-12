@@ -60,6 +60,10 @@ Column {
                 regularExpression: field.digitsOnly ? /[0-9]*/ : /.*/
             }
             onTextEdited: field.edited(text)
+            // Enter or Esc finishes typing, as in other Windows apps.
+            Keys.onReturnPressed: focus = false
+            Keys.onEnterPressed: focus = false
+            Keys.onEscapePressed: focus = false
         }
 
         // The eye: shows or masks what's typed.

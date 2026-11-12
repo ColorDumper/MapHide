@@ -5,7 +5,6 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QCoreApplication  # noqa: E402
 from test_controller import FakeService, ManualScheduler, make_config  # noqa: E402
 
 from maphide.controller import HISTORY_NOTICE  # noqa: E402
@@ -16,9 +15,9 @@ from maphide.qt.app import Backend  # noqa: E402
 from maphide.qt.view import QT_KEY_ESCAPE, SCREEN_CONNECTING, SOURCE_FOLLOWS  # noqa: E402
 
 
-@pytest.fixture(scope="module", autouse=True)
-def qt_app():
-    return QCoreApplication.instance() or QCoreApplication([])
+@pytest.fixture(autouse=True)
+def _qt(qt_app):
+    return qt_app
 
 
 class StartingService(FakeService):

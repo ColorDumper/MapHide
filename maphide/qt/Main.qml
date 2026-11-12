@@ -11,7 +11,18 @@ Window {
     readonly property color coverRed: "#d9483b"
     readonly property color coverRedText: "#ff7a6b"
     property bool drawerOpen: false
-    onDrawerOpenChanged: if (!drawerOpen) settings.stopCapture()
+    onDrawerOpenChanged: if (!drawerOpen) {
+        settings.stopCapture()
+        releaseKeyboard()
+    }
+    onVisibleChanged: if (!visible) releaseKeyboard()
+
+    // Takes the keyboard back from whichever text field has it, so keys
+    // pressed afterwards don't type into a field you can no longer see.
+    function releaseKeyboard() {
+        if (activeFocusItem)
+            activeFocusItem.focus = false
+    }
 
     width: 480
     height: 748

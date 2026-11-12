@@ -25,6 +25,7 @@ import sys
 from maphide.config import default_config, load_config
 from maphide.overlay import MapHideService, stop_wait_should_continue
 from maphide.paths import CONFIG_PATH
+from maphide.single_instance import COMMAND_QUIT, COMMAND_SHOW, is_running, send_command
 from maphide.single_instance import acquire as acquire_single_instance
 
 EVENT_POLL_SECONDS = 0.5
@@ -34,6 +35,12 @@ SHUTDOWN_POLL_SECONDS = 0.25
 # request per scene carrying the overlay source), so Ctrl+C polls for it to
 # actually finish rather than giving up on a single fixed wait.
 SHUTDOWN_WAIT_CEILING_SECONDS = 15
+# How long `--quit` waits for the running copy to finish closing. Longer
+# than the window's own exit backstop, so a slow but working exit is never
+# reported as a failure.
+QUIT_WAIT_SECONDS = 20
+# How long `--quit` keeps trying to reach a copy that isn't listening yet.
+QUIT_DELIVERY_SECONDS = 5
 ALREADY_RUNNING_MESSAGE = "MapHide is already running."
 ALREADY_RUNNING_NOTICE_MUTEX = "Local\\MapHide-AlreadyRunningNotice"
 # Distinct from the main window's title ("MapHide") so FindWindowW below can
@@ -117,6 +124,29 @@ def run_selftest():
     return selftest()
 
 
+def quit_running_copy(wait_seconds=QUIT_WAIT_SECONDS):
+    """`MapHide.exe --quit`: close a running copy the way Exit in the tray
+    does, so it hides the overlay first, and wait for it to finish. Returns
+    the exit code: 0 once no copy is running, 1 if one is still running.
+    For installers and updaters, which need MapHide closed first."""
+    import time
+
+    from maphide.single_instance import wait_until_closed
+
+    if not is_running():
+        return 0
+    # A copy that has only just started may not be listening yet; one run
+    # with --headless never listens, and won't be closed this way.
+    deadline = time.monotonic() + QUIT_DELIVERY_SECONDS
+    while not send_command(COMMAND_QUIT):
+        if not is_running():
+            return 0
+        if time.monotonic() >= deadline:
+            return 1
+        time.sleep(0.25)
+    return 0 if wait_until_closed(wait_seconds) else 1
+
+
 def report_already_running(headless, notice_name=ALREADY_RUNNING_NOTICE_MUTEX):
     if headless:
         print(ALREADY_RUNNING_MESSAGE)
@@ -139,10 +169,16 @@ def report_already_running(headless, notice_name=ALREADY_RUNNING_NOTICE_MUTEX):
 def main():
     if "--selftest" in sys.argv:
         sys.exit(run_selftest())
+    if "--quit" in sys.argv:
+        sys.exit(quit_running_copy())
 
     headless = "--headless" in sys.argv
 
     if not acquire_single_instance():
+        # The running copy brings its own window forward; the notice is only
+        # for when it can't be reached.
+        if not headless and send_command(COMMAND_SHOW):
+            sys.exit(0)
         report_already_running(headless)
         sys.exit(1)
 

@@ -193,7 +193,8 @@ The log never contains your OBS password. It is off by default, starts fresh eac
 - The OBS host, port, and password are hidden by default in the UI.
 - If OBS is closed after MapHide has connected, MapHide will try to reconnect automatically.
 - If the initial OBS settings are incorrect, MapHide will wait for you to fix the settings and save again.
-- Launching MapHide while it's already running shows a notice instead of starting a second copy.
+- Launching MapHide while it's already running brings the open window to the front instead of starting a second copy.
+- To close MapHide from a script or installer, run `MapHide.exe --quit`. It hides the overlay first, the same way `Exit` in the tray does.
 - Closing the window hides MapHide to the system tray.
 - To fully close MapHide, right-click the tray icon and click `Exit`.
 - Windows may show a SmartScreen or "Unknown publisher" warning when opening the app because it is not code-signed. Click `More info`, then `Run anyway`.

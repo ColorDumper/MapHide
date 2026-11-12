@@ -6,12 +6,24 @@ view.py, where they are tested without Qt.
 """
 
 import sys
+from ctypes import wintypes
 from dataclasses import asdict
 
-from PySide6.QtCore import Property, QEvent, QObject, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import (
+    Property,
+    QAbstractNativeEventFilter,
+    QEvent,
+    QObject,
+    QTimer,
+    QUrl,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import QAction, QFontDatabase, QGuiApplication, QIcon
+from PySide6.QtNetwork import QLocalServer
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from shiboken6 import isValid
 
 from ..config import config_from_form
 from ..controller import HISTORY_NOTICE, AppController
@@ -19,6 +31,7 @@ from ..fieldlog import field_line
 from ..logs import plain_reason
 from ..overlay import human_ts
 from ..paths import APP_DIR, APP_NAME, APP_USER_MODEL_ID, ICON_ICO_PATH
+from ..single_instance import COMMAND_QUIT, COMMAND_SHOW, command_pipe_name
 from ..themes import THEMES, theme_name
 from ..version import APP_VERSION
 from ..winutil import apply_dark_title_bar, set_app_id
@@ -40,6 +53,11 @@ POLL_INTERVAL_MS = 100
 AUTO_CONNECT_DELAY_MS = 250
 CONFIG_NOT_LOADED = "Settings couldn't be read, so the defaults are in use."
 NO_TRAY = "No notification area, so closing the window will exit MapHide."
+# How long to wait, when Windows is signing out or shutting down, for the
+# worker to hide the overlay. Windows gives an app about five seconds before
+# ending it regardless.
+SESSION_END_WAIT_SECONDS = 4
+WM_ENDSESSION = 0x0016
 # Fonts the window is drawn in; the self-test checks each one loaded.
 FONT_FAMILIES = ("Barlow", "Barlow Condensed", "IBM Plex Mono")
 
@@ -265,6 +283,15 @@ class Backend(QObject):
         if self.controller.begin_exit(self._quit_app):
             self.hideRequested.emit()
 
+    def end_session(self, wait_seconds=SESSION_END_WAIT_SECONDS):
+        """Windows is signing out, restarting or shutting down, or an
+        installer is closing MapHide. Stop the worker and wait here for it
+        to hide the overlay: Windows ends the process soon after this
+        returns, so the usual exit, which waits in the background, would be
+        cut short."""
+        self.exitApp()
+        self.controller.service.wait(timeout=wait_seconds)
+
     # The settings drawer.
 
     @Property("QVariantMap", notify=formChanged)
@@ -410,6 +437,90 @@ def build_window(backend):
     return engine, window, warnings
 
 
+def ends_session(message, wparam):
+    """Whether a Windows message says the session is ending for real: a
+    WM_ENDSESSION that wasn't cancelled. Sign-out, restart and shutdown send
+    it, and so does an installer closing MapHide through Windows' Restart
+    Manager."""
+    return message == WM_ENDSESSION and bool(wparam)
+
+
+class SessionEnd(QAbstractNativeEventFilter):
+    """Calls `on_end` once when Windows ends the session. Qt alone treats
+    this like the window's close button, which hides MapHide to the tray -
+    and Windows then ends it without the overlay being hidden."""
+
+    def __init__(self, on_end):
+        super().__init__()
+        self._on_end = on_end
+        self._ended = False
+
+    def nativeEventFilter(self, event_type, message):
+        if not self._ended and bytes(event_type) == b"windows_generic_MSG":
+            msg = wintypes.MSG.from_address(int(message))
+            if ends_session(msg.message, msg.wParam):
+                self._ended = True
+                self._on_end()
+        # Qt still handles the message as it normally would.
+        return False, 0
+
+
+class CommandServer(QObject):
+    """Listens for commands from a second launch of MapHide - see
+    single_instance.send_command. "show" brings the window forward, "quit"
+    exits the way Exit in the tray does."""
+
+    def __init__(self, name, on_show, on_quit):
+        super().__init__()
+        self._handlers = {COMMAND_SHOW: on_show, COMMAND_QUIT: on_quit}
+        self._connections = set()
+        self._server = QLocalServer(self)
+        # Only this Windows user can connect.
+        self._server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
+        self._server.newConnection.connect(self._accept)
+        self.listening = self._server.listen(name)
+
+    # Connected as this object's own methods, not lambdas, so Qt stops
+    # calling them the moment this object is gone.
+
+    def _accept(self):
+        while self._server.hasPendingConnections():
+            connection = self._server.nextPendingConnection()
+            self._connections.add(connection)
+            connection.readyRead.connect(self._on_ready_read)
+            connection.disconnected.connect(self._on_disconnected)
+            self._read(connection)
+
+    def _on_ready_read(self):
+        self._read(self.sender())
+
+    def _on_disconnected(self):
+        # A second launch writes one line and hangs up at once, so read
+        # whatever is left before letting the connection go.
+        connection = self.sender()
+        self._read(connection)
+        self._connections.discard(connection)
+        if isValid(connection):
+            connection.deleteLater()
+
+    def _read(self, connection):
+        # Qt may already have deleted a connection that hung up.
+        if connection is None or not isValid(connection):
+            return
+        while connection.canReadLine():
+            line = bytes(connection.readLine(64)).decode("ascii", "replace").strip()
+            handler = self._handlers.get(line)
+            if handler is not None:
+                handler()
+
+    def close(self):
+        self._server.close()
+        for connection in list(self._connections):
+            if isValid(connection):
+                connection.abort()
+        self._connections.clear()
+
+
 class TrayIcon:
     """The notification-area icon: click it, or Show, to bring the window
     back; Exit quits."""
@@ -470,6 +581,12 @@ def main():
         tray.show()
         backend.hides_to_tray = True
 
+    # A second launch brings this window forward, and `MapHide.exe --quit`
+    # closes MapHide properly; both arrive here.
+    commands = CommandServer(command_pipe_name(), on_show=show_window, on_quit=backend.exitApp)
+    session_end = SessionEnd(backend.end_session)
+    app.installNativeEventFilter(session_end)
+
     backend.themeChanged.connect(paint_title_bar)
     backend.hideRequested.connect(window.hide)
     backend.load()
@@ -479,6 +596,8 @@ def main():
     paint_title_bar()
     window.show()
     result = app.exec()
+    commands.close()
+    app.removeNativeEventFilter(session_end)
     if tray is not None:
         tray.hide()
     # Tear the window down while the backend it reads from still exists.

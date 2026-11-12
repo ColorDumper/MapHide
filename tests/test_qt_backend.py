@@ -11,7 +11,7 @@ from maphide.controller import HISTORY_NOTICE  # noqa: E402
 from maphide.hotkeys import SHOW_KEY_HELP  # noqa: E402
 from maphide.obs import ConnectionCheck  # noqa: E402
 from maphide.overlay import CONNECTED, CONNECTING, ServiceStatus  # noqa: E402
-from maphide.qt.app import Backend  # noqa: E402
+from maphide.qt.app import WM_ENDSESSION, Backend, ends_session  # noqa: E402
 from maphide.qt.view import QT_KEY_ESCAPE, SCREEN_CONNECTING, SOURCE_FOLLOWS  # noqa: E402
 
 
@@ -26,6 +26,13 @@ class StartingService(FakeService):
     def start(self, cfg):
         super().start(cfg)
         self.status = ServiceStatus(CONNECTING, "Starting...")
+
+    def wait(self, timeout=None):
+        self.waits.append(timeout)
+
+    @property
+    def waits(self):
+        return self.__dict__.setdefault("_waits", [])
 
 
 class Harness:
@@ -312,3 +319,24 @@ def test_exit_from_the_tray_quits(h):
     h.backend.exitApp()
 
     assert h.quits == 1
+
+
+# Windows ending the session.
+
+
+def test_a_session_end_stops_the_worker_and_waits_for_it_here(h):
+    fill_form(h.backend)
+    h.backend.primary()
+
+    h.backend.end_session(wait_seconds=3)
+
+    assert h.service.stop_requests == 1
+    assert h.service.waits == [3]
+    assert h.hides == [True]
+
+
+def test_only_a_real_session_end_counts():
+    assert ends_session(WM_ENDSESSION, 1)
+    # Windows sends it with wParam 0 when the sign-out was cancelled.
+    assert not ends_session(WM_ENDSESSION, 0)
+    assert not ends_session(0x0011, 1)  # WM_QUERYENDSESSION only asks

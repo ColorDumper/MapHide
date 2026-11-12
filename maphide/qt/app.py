@@ -789,6 +789,25 @@ def main():
     return result
 
 
+def bundle_problems(icon_path=ICON_ICO_PATH):
+    """Pieces the app needs that opening the window doesn't prove are there:
+    HTTPS, which the update check uses, and the window icon. Without HTTPS
+    every check would just say GitHub can't be reached. Needs a running
+    QApplication. Returns what's wrong, empty when nothing is."""
+    problems = []
+    try:
+        # Imported here: a missing piece should fail this check, not stop
+        # MapHide from opening.
+        import ssl
+
+        ssl.create_default_context()
+    except Exception:
+        problems.append("HTTPS support did not load, so update checks would fail")
+    if QIcon(str(icon_path)).pixmap(32, 32).isNull():
+        problems.append("the window icon did not load")
+    return problems
+
+
 def selftest():
     """Build the window without showing it, and check that it loaded with
     its map image and fonts. Returns an exit code: 0 when all is well. The
@@ -809,6 +828,7 @@ def selftest():
     missing_fonts = set(FONT_FAMILIES) - set(QFontDatabase.families())
     if missing_fonts:
         problems.append(f"fonts not loaded: {', '.join(sorted(missing_fonts))}")
+    problems.extend(bundle_problems())
     for problem in problems:
         print(problem, file=sys.stderr)
     del engine

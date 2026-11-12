@@ -16,8 +16,6 @@ from maphide.controller import (
     RESTART_POLL_INTERVAL_MS,
     AppController,
     HistoryEntry,
-    help_text,
-    status_line,
 )
 from maphide.obs import ConnectionCheck
 from maphide.overlay import (
@@ -125,33 +123,6 @@ def h():
     return Harness()
 
 
-# Status and help wording.
-
-
-def test_the_status_line_shows_the_services_own_wording():
-    status = ServiceStatus(CONNECTED, "Connected to OBS.")
-
-    assert status_line(status, restart_pending=False) == "Connected to OBS."
-
-
-def test_the_status_line_hides_the_stop_and_start_of_a_settings_restart():
-    status = ServiceStatus(STOPPING, "Stopping...")
-
-    assert status_line(status, restart_pending=True) == "Applying settings..."
-
-
-def test_help_text_describes_hold_mode():
-    assert help_text(make_config(hotkey="M")) == (
-        "Hold M to show the overlay. Release M to hide it."
-    )
-
-
-def test_help_text_describes_toggle_mode():
-    assert help_text(make_config(hotkey="M", toggle_mode=True, hide_hotkey="ESC")) == (
-        "Press M to show the overlay. Press ESC to hide it."
-    )
-
-
 # Loading.
 
 
@@ -233,7 +204,7 @@ def test_saving_while_stopped_records_it_without_starting_anything(h):
 
     assert h.saved == [cfg]
     assert h.controller.running_config == cfg
-    assert h.controller.history_lines[-1].endswith("Config saved.")
+    assert h.controller.history[-1].message == "Config saved."
     assert h.service.started_with == []
     assert h.changes == 1
 
@@ -247,7 +218,7 @@ def test_a_failed_save_changes_nothing(h):
     with pytest.raises(OSError):
         controller.save(make_config(hotkey="M"))
     assert controller.running_config == default_config()
-    assert controller.history_lines == []
+    assert controller.history == []
 
 
 def test_saving_while_running_restarts_the_worker_once_the_old_one_has_stopped(h):
@@ -257,7 +228,6 @@ def test_saving_while_running_restarts_the_worker_once_the_old_one_has_stopped(h
     h.controller.save(new_cfg)
 
     assert h.controller.restart_pending is True
-    assert h.controller.status_text == "Applying settings..."
     assert (h.controller.can_start, h.controller.can_stop) == (False, False)
     h.schedule.run_next()
     assert h.service.started_with == [make_config()], "must wait for the old worker"
@@ -316,7 +286,7 @@ def test_restoring_defaults_saves_and_returns_them(h):
     assert cfg == default_config()
     assert h.saved[-1] == default_config()
     assert h.controller.running_config == default_config()
-    assert h.controller.history_lines[-1].endswith("Defaults restored.")
+    assert h.controller.history[-1].message == "Defaults restored."
 
 
 # History.
@@ -327,7 +297,7 @@ def test_events_marked_for_history_are_kept(h):
     h.service.emit("Reconnecting... 1s", history=False)
 
     assert h.controller.drain_events() is True
-    assert h.controller.history_lines == ["t  Connected to OBS."]
+    assert [entry.message for entry in h.controller.history] == ["Connected to OBS."]
 
 
 def test_history_entries_keep_the_event_code_and_scene(h):
@@ -358,9 +328,10 @@ def test_history_keeps_only_the_newest_lines(h):
     for index in range(HISTORY_LINE_COUNT + 3):
         h.controller.add_history("t", f"line {index}")
 
-    assert len(h.controller.history_lines) == HISTORY_LINE_COUNT
-    assert h.controller.history_lines[0] == "t  line 3"
-    assert h.controller.history_lines[-1] == f"t  line {HISTORY_LINE_COUNT + 2}"
+    messages = [entry.message for entry in h.controller.history]
+    assert len(messages) == HISTORY_LINE_COUNT
+    assert messages[0] == "line 3"
+    assert messages[-1] == f"line {HISTORY_LINE_COUNT + 2}"
 
 
 # Exit.
@@ -534,7 +505,7 @@ def test_saving_a_change_the_worker_does_not_use_leaves_it_running(h, change):
     assert h.controller.restart_pending is False
     assert h.service.stop_requests == 0
     assert h.controller.running_config == make_config(**change)
-    assert h.controller.history_lines[-1].endswith("Config saved.")
+    assert h.controller.history[-1].message == "Config saved."
 
 
 def test_after_a_restart_saving_the_same_settings_again_does_not_restart(h):
@@ -565,4 +536,3 @@ def test_starting_puts_the_started_settings_into_effect(h):
     h.controller.start(make_config(hotkey="M"))
 
     assert h.controller.running_config == make_config(hotkey="M")
-    assert h.controller.help_text == "Hold M to show the overlay. Release M to hide it."

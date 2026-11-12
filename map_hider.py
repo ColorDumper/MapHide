@@ -131,8 +131,8 @@ def report_already_running(headless, notice_name=ALREADY_RUNNING_NOTICE_MUTEX):
         if existing:
             _set_foreground_window(existing)
         return
-    # A plain Win32 message box, not Tk: this can fire before any window
-    # exists, and a launch that's about to exit has no reason to spin one up.
+    # A plain Win32 message box, not Qt: this can fire before any window
+    # exists, and a launch that's about to exit has no reason to load Qt.
     _show_message_box(0, ALREADY_RUNNING_MESSAGE, NOTICE_TITLE, MB_ICONWARNING)
 
 

@@ -20,15 +20,6 @@ STANDALONE_HIDE_KEY_LABELS = ("ESC", "SHIFT")
 # while the key currently reads up; see state.py's decide().
 KEY_DOWN_MASK = 0x8000
 KEY_PRESSED_SINCE_MASK = 0x0001
-MODIFIER_KEYSYMS = {
-    "SHIFT_L": "SHIFT",
-    "SHIFT_R": "SHIFT",
-}
-SPECIAL_KEYSYMS = {
-    "ESCAPE": "ESC",
-}
-# Tk reports which modifiers were held as bits on a key event's state field.
-MODIFIER_STATE_MASKS = {"SHIFT": 0x0001}
 
 SHOW_KEY_HELP = "Show key supports A-Z."
 HIDE_KEY_HELP = "Hide key supports A-Z, Esc, Shift, or Shift+A-Z."
@@ -61,17 +52,6 @@ def is_valid_hide_hotkey(hotkey):
 def is_valid_show_hotkey(hotkey):
     labels = hotkey_labels(hotkey)
     return len(labels) == 1 and labels[0] in SHOW_KEY_LABELS
-
-
-def normalize_event_key(keysym):
-    key = str(keysym).strip().upper()
-    if key in MODIFIER_KEYSYMS:
-        return MODIFIER_KEYSYMS[key]
-    if key in SPECIAL_KEYSYMS:
-        return SPECIAL_KEYSYMS[key]
-    if len(key) == 1 and (key.isalpha() or key.isdigit()):
-        return key if key in SHOW_KEY_LABELS else None
-    return None
 
 
 def read_key_state(vk_code):

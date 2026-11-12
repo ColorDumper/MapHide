@@ -193,8 +193,8 @@ def recheck_missing_source(client, scene_items, scene_name, source_name):
 
 
 def scene_status(scene_name, is_first_detection=False):
-    # No hotkey/mode explanation here - the help text below the log already
-    # covers that, and repeating it made this line far too long for the space.
+    # No hotkey/mode explanation here: the window shows that on its own, and
+    # repeating it made this line far too long for the space.
     verb = "New scene detected" if is_first_detection else "Switched to scene"
     return f"{verb}: {scene_name}."
 
@@ -240,12 +240,13 @@ def monotonic_now():
 
 def stop_wait_should_continue(is_running, elapsed_ms, ceiling_ms):
     """Whether a poll loop waiting on a MapHideService to stop should keep
-    going. Used by both the GUI (ui.py) and headless (map_hider.py) shutdown
-    paths, so it lives next to the service itself rather than in either one.
+    going. Used by both the window's controller (controller.py) and headless
+    mode (map_hider.py), so it lives next to the service itself rather than
+    in either one.
 
-    Pure - no clock, no thread, no Tk - so the cutoff logic is testable on
-    its own, without a real timer or a live worker thread. `ceiling_ms=None`
-    means wait indefinitely (a GUI Save Settings restart: the app keeps
+    Pure - no clock, no thread, no window - so the cutoff logic is testable
+    on its own, without a real timer or a live worker thread. `ceiling_ms=None`
+    means wait indefinitely (a restart after saving settings: the app keeps
     running either way, so there is no reason to ever give up on the old
     worker's own cleanup). A numeric ceiling is a backstop for actually
     exiting, where the process must eventually finish regardless of how long
@@ -772,7 +773,7 @@ class MapHideService:
                         "Could not close the OBS connection cleanly: %s", describe_exception(exc)
                     )
 
-            # Emitted before the flag flips, not after: ui.py's restart polling
+            # Emitted before the flag flips, not after: the controller's restart polling
             # waits for is_running to go False before starting the replacement
             # worker, and must never be able to observe that before "stopped"
             # has already reached the queue - otherwise the new worker's own

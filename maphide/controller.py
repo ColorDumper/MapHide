@@ -34,7 +34,6 @@ CHECK_FAILED = "Could not check the connection."
 # fixed wait - see stop_wait_should_continue. This only ever matters if that
 # cleanup somehow runs far longer than any realistic scene count justifies.
 EXIT_WAIT_CEILING_MS = 15_000
-APPLYING_SETTINGS = "Applying settings..."
 # History codes for the controller's own entries, alongside the worker's
 # EVENT_* codes.
 HISTORY_SETTINGS_SAVED = "settings_saved"
@@ -56,20 +55,6 @@ class HistoryEntry:
     subject: str | None = None
 
 
-def status_line(status, restart_pending):
-    """What the status line says: the service's own wording, except while a
-    settings change is restarting it - the stop and start in between are not
-    worth showing."""
-    return APPLYING_SETTINGS if restart_pending else status.message
-
-
-def help_text(cfg):
-    """One line on how to use the keys the running settings name."""
-    if cfg.toggle_mode:
-        return f"Press {cfg.hotkey} to show the overlay. Press {cfg.hide_hotkey} to hide it."
-    return f"Hold {cfg.hotkey} to show the overlay. Release {cfg.hotkey} to hide it."
-
-
 def _ignore(*_args):
     return None
 
@@ -79,7 +64,7 @@ class AppController:
 
     `schedule(milliseconds, callback)` runs `callback` later on the window's
     thread. `notify(text)` shows the user a one-off message. `on_change()`
-    asks the window to redraw the status line, buttons and history.
+    asks the window to redraw what it shows.
     """
 
     def __init__(
@@ -107,14 +92,6 @@ class AppController:
         self.history = []
 
     # What the window draws.
-
-    @property
-    def status_text(self):
-        return status_line(self.service.status, self.restart_pending)
-
-    @property
-    def help_text(self):
-        return help_text(self.running_config)
 
     @property
     def snapshot(self):
@@ -303,11 +280,6 @@ class AppController:
     def add_history(self, timestamp, message, code=None, subject=None):
         self.history.append(HistoryEntry(timestamp, message, code, subject))
         del self.history[:-HISTORY_LINE_COUNT]
-
-    @property
-    def history_lines(self):
-        """The history as plain lines, oldest first."""
-        return [f"{entry.timestamp}  {entry.message}" for entry in self.history]
 
     # Shutting down.
 

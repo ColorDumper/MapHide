@@ -270,8 +270,8 @@ def test_starting_again_clears_a_previous_stop(monkeypatch):
 
 
 def test_stopped_is_queued_before_running_flips_false(monkeypatch):
-    # ui.py's _finish_service_restart polls is_running to know when it is
-    # safe to start the replacement worker after a Save Settings restart. If
+    # The controller polls is_running to know when it is safe to start the
+    # replacement worker after saving settings restarts it. If
     # "stopped" were queued *after* is_running flips False, a poll landing
     # in that gap could start the new worker - and let it enqueue its own
     # events - before the old "stopped" event even reaches the queue,
@@ -892,7 +892,7 @@ def test_a_press_while_the_active_scenes_item_id_is_unknown_does_not_block_the_l
 
 # --- stop_wait_should_continue -------------------------------------------------
 #
-# The cutoff both the GUI exit path (ui.py) and headless Ctrl+C (map_hider.py)
+# The cutoff both the window's exit path (controller.py) and headless Ctrl+C (map_hider.py)
 # use to decide when it's safe to stop waiting on a MapHideService to
 # actually finish stopping. Pure on purpose: a single fixed wait could give
 # up on a slow, multi-scene shutdown cleanup before it finished, so real

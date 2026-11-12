@@ -739,6 +739,7 @@ Item {
 
         PressButton {
             id: saveButton
+            objectName: "saveButton"
             anchors.right: parent.right
             anchors.rightMargin: 18
             y: 12

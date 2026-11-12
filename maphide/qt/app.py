@@ -14,6 +14,7 @@ from PySide6.QtCore import (
     QAbstractNativeEventFilter,
     QEvent,
     QObject,
+    QPoint,
     QTimer,
     QUrl,
     Signal,
@@ -63,6 +64,56 @@ SESSION_END_WAIT_SECONDS = 4
 WM_ENDSESSION = 0x0016
 # Fonts the window is drawn in; the self-test checks each one loaded.
 FONT_FAMILIES = ("Barlow", "Barlow Condensed", "IBM Plex Mono")
+# The shortest the window gets on a small screen: everything above the
+# field log still shows.
+MIN_WINDOW_HEIGHT = 540
+# The title bar and border, when Windows hasn't said yet (the window isn't
+# shown). Generous, so a guess never leaves the bottom off-screen.
+DEFAULT_FRAME_HEIGHT = 40
+
+
+def fitted_height(full, available, frame):
+    """The window's height on a screen with `available` height above the
+    taskbar, `frame` of it going to the title bar: the full height when it
+    fits, otherwise what fits, but never below MIN_WINDOW_HEIGHT."""
+    return max(MIN_WINDOW_HEIGHT, min(full, available - frame))
+
+
+def on_screen_top(top, height, area_top, area_height):
+    """Where a window `height` tall, now at `top`, goes so it's inside the
+    area: it stays put if it already is. When it can't fit, its title bar
+    stays visible."""
+    lowest = area_top + area_height - height
+    return max(area_top, min(top, lowest))
+
+
+def fit_to_screen(window):
+    """Lower the window's height to what its screen has room for. Call it
+    before the window is first shown."""
+    screen = window.screen()
+    if screen is None:
+        return
+    window.setProperty(
+        "fitHeight",
+        fitted_height(
+            window.property("fullHeight"),
+            screen.availableGeometry().height(),
+            DEFAULT_FRAME_HEIGHT,
+        ),
+    )
+
+
+def keep_on_screen(window):
+    """Move the shown window, title bar included, inside the area above the
+    taskbar if part of it is off."""
+    screen = window.screen()
+    if screen is None:
+        return
+    area = screen.availableGeometry()
+    frame = window.frameGeometry()
+    top = on_screen_top(frame.top(), frame.height(), area.top(), area.height())
+    if top != frame.top():
+        window.setFramePosition(frame.topLeft() + QPoint(0, top - frame.top()))
 
 
 def argb(color, opacity):
@@ -682,7 +733,9 @@ def main():
         backend.notice(NO_TRAY)
     # Shown only now, so it appears with its theme's title bar already set.
     paint_title_bar()
+    fit_to_screen(window)
     window.show()
+    keep_on_screen(window)
     result = app.exec()
     commands.close()
     app.removeNativeEventFilter(session_end)

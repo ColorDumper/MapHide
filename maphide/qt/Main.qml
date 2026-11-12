@@ -38,8 +38,14 @@ Window {
         function onWindowPressed(x, y) { win.releaseFieldUnlessAt(x, y) }
     }
 
+    // The height the window is designed for. On a screen too short for it,
+    // Python lowers fitHeight: the field log and the Settings list take up
+    // the difference.
+    readonly property int fullHeight: 748
+    property int fitHeight: fullHeight
+
     width: 480
-    height: 748
+    height: fitHeight
     minimumWidth: width
     maximumWidth: width
     minimumHeight: height
@@ -519,8 +525,9 @@ Window {
 
                 // Field log
                 Rectangle {
+                    objectName: "fieldLog"
                     width: parent.width
-                    height: win.height - y - column.y - 36
+                    height: Math.max(0,win.height - y - column.y - 36)
                     color: win.t.glass
                     border.color: win.t.border
                     clip: true

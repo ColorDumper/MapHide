@@ -622,10 +622,14 @@ Window {
             id: drawer
             width: 436
             height: parent.height
-            x: win.drawerOpen ? parent.width - width : parent.width
-            visible: x < parent.width
+            // How far open, from 0 (hidden) to 1. The slide animates this,
+            // not x, so the window growing to its size as it first opens
+            // doesn't slide the drawer across it.
+            property real openness: win.drawerOpen ? 1 : 0
+            x: parent.width - width * openness
+            visible: openness > 0
             color: win.t.bg
-            Behavior on x { NumberAnimation { duration: 340; easing.type: Easing.Bezier; easing.bezierCurve: [0.2, 0.9, 0.25, 1, 1, 1] } }
+            Behavior on openness { NumberAnimation { duration: 340; easing.type: Easing.Bezier; easing.bezierCurve: [0.2, 0.9, 0.25, 1, 1, 1] } }
             Rectangle { width: 1; height: parent.height; color: win.t.border2 }
             MouseArea { anchors.fill: parent }
 

@@ -57,6 +57,8 @@ All notable changes to MapHide are documented here.
   you have any.
 - Added a warning when you click Reset while MapHide is running, saying that
   Reset disconnects MapHide from OBS.
+- Fixed MapHide refusing to open after it was closed, saying it was already
+  running, while an earlier "already running" message was still open.
 
 ## v0.2.6 - 2026-10-27
 

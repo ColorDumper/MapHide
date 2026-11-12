@@ -39,8 +39,11 @@ SHUTDOWN_WAIT_CEILING_SECONDS = 15
 # than the window's own exit backstop, so a slow but working exit is never
 # reported as a failure.
 QUIT_WAIT_SECONDS = 20
-# How long `--quit` keeps trying to reach a copy that isn't listening yet.
+# How long `--quit`, and a second launch, keep trying to reach a copy that
+# isn't listening yet, and how often.
 QUIT_DELIVERY_SECONDS = 5
+SHOW_DELIVERY_SECONDS = 5
+DELIVERY_RETRY_SECONDS = 0.25
 ALREADY_RUNNING_MESSAGE = "MapHide is already running."
 ALREADY_RUNNING_NOTICE_MUTEX = "Local\\MapHide-AlreadyRunningNotice"
 # Distinct from the main window's title ("MapHide") so FindWindowW below can
@@ -143,8 +146,23 @@ def quit_running_copy(wait_seconds=QUIT_WAIT_SECONDS):
             return 0
         if time.monotonic() >= deadline:
             return 1
-        time.sleep(0.25)
+        time.sleep(DELIVERY_RETRY_SECONDS)
     return 0 if wait_until_closed(wait_seconds) else 1
+
+
+def show_running_copy():
+    """Bring the running copy's window forward. Returns whether it got the
+    message. A copy started a moment ago holds the lock at once but only
+    listens once its window is built, so keep trying for a few seconds, as
+    --quit does. Gives up early if that copy closes meanwhile."""
+    import time
+
+    deadline = time.monotonic() + SHOW_DELIVERY_SECONDS
+    while not send_command(COMMAND_SHOW):
+        if not is_running() or time.monotonic() >= deadline:
+            return False
+        time.sleep(DELIVERY_RETRY_SECONDS)
+    return True
 
 
 def report_already_running(headless, notice_name=ALREADY_RUNNING_NOTICE_MUTEX):
@@ -177,10 +195,12 @@ def main():
     if not acquire_single_instance():
         # The running copy brings its own window forward; the notice is only
         # for when it can't be reached.
-        if not headless and send_command(COMMAND_SHOW):
+        if not headless and show_running_copy():
             sys.exit(0)
-        report_already_running(headless)
-        sys.exit(1)
+        # Unless it closed while this launch waited: then this one is MapHide.
+        if headless or not acquire_single_instance():
+            report_already_running(headless)
+            sys.exit(1)
 
     if headless:
         run_headless()

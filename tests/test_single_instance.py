@@ -1,5 +1,7 @@
 """Tests for the OS-level guard against two copies of MapHide running at once."""
 
+import subprocess
+import sys
 import uuid
 
 from maphide import single_instance
@@ -24,6 +26,33 @@ def test_a_second_acquire_of_the_same_name_reports_already_running():
 def test_two_different_names_do_not_interfere():
     assert single_instance.acquire(_unique_name()) is True
     assert single_instance.acquire(_unique_name()) is True
+
+
+def test_a_launch_that_finds_one_running_does_not_keep_it_marked_running():
+    # Another process holds the name, as a running MapHide would.
+    name = _unique_name()
+    holder = subprocess.Popen(  # noqa: S603 - this interpreter, fixed code
+        [
+            sys.executable,
+            "-c",
+            "import sys; from maphide import single_instance as s;"
+            f" s.acquire({name!r}); print('held', flush=True); sys.stdin.read()",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        assert single_instance.acquire(name) is False
+
+        holder.stdin.close()
+        holder.wait(timeout=10)
+
+        # Only the other process held it: once it's gone, so is the name.
+        assert single_instance.is_running(name) is False
+    finally:
+        holder.kill()
 
 
 # --- talking to the running copy ----------------------------------------------

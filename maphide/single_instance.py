@@ -31,17 +31,22 @@ ERROR_ALREADY_EXISTS = 183
 def acquire(name=MUTEX_NAME):
     """True if this is the only running copy holding `name`.
 
-    The handle is deliberately never closed - it lives for the life of the
-    process, and Windows releases it automatically on exit (including a
-    crash), so a later launch can never be blocked by a copy that died
-    uncleanly.
+    The winner's handle is deliberately never closed - it lives for the life
+    of the process, and Windows releases it automatically on exit (including
+    a crash), so a later launch can never be blocked by a copy that died
+    uncleanly. A launch that finds `name` already held lets go of its handle
+    at once: holding it would keep `name` marked as running after the real
+    copy exits.
     """
     handle = _kernel32.CreateMutexW(None, False, name)
     if not handle:
         # Could not even ask the OS - fail open rather than block a
         # legitimate launch over something unrelated to another copy running.
         return True
-    return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
+    if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+        _kernel32.CloseHandle(handle)
+        return False
+    return True
 
 
 # --- talking to the running copy -------------------------------------------

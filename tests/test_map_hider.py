@@ -183,40 +183,78 @@ def test_quit_fails_if_the_running_copy_does_not_close(monkeypatch):
     assert map_hider.quit_running_copy() == 1
 
 
-def _second_launch(monkeypatch, delivered, argv=("map_hider.py",)):
-    shown = []
+def _second_launch(
+    monkeypatch, delivered, argv=("map_hider.py",), running=True, acquires=(False, False)
+):
+    """Launch while another copy holds the lock. `delivered` is whether the
+    running copy hears "show": one answer for every try, or a list of them in
+    order. `acquires` answers each try at the lock in turn."""
+    shown, sent = [], []
+    answers = list(delivered) if isinstance(delivered, list) else None
+    locks = iter(acquires)
+
+    def send(command):
+        sent.append(command)
+        return answers.pop(0) if answers is not None else delivered
+
     monkeypatch.setattr(map_hider.sys, "argv", list(argv))
-    monkeypatch.setattr(map_hider, "acquire_single_instance", lambda *args: False)
-    monkeypatch.setattr(map_hider, "send_command", lambda command: delivered)
+    monkeypatch.setattr(map_hider, "acquire_single_instance", lambda *args: next(locks))
+    monkeypatch.setattr(map_hider, "send_command", send)
+    monkeypatch.setattr(map_hider, "is_running", lambda: running)
+    monkeypatch.setattr(map_hider, "SHOW_DELIVERY_SECONDS", 0.3)
+    monkeypatch.setattr(map_hider, "DELIVERY_RETRY_SECONDS", 0.01)
     monkeypatch.setattr(
         map_hider, "report_already_running", lambda headless: shown.append(headless)
     )
+    monkeypatch.setattr("maphide.qt.app.main", lambda: "started")
     try:
         map_hider.main()
     except SystemExit as exit_:
-        return exit_.code, shown
+        return exit_.code, shown, sent
     raise AssertionError("main() returned instead of exiting")
 
 
 def test_a_second_launch_brings_the_running_window_forward(monkeypatch):
-    code, shown = _second_launch(monkeypatch, delivered=True)
+    code, shown, _sent = _second_launch(monkeypatch, delivered=True)
 
     assert code == 0
     assert shown == []
 
 
+def test_a_second_launch_waits_for_a_copy_that_is_still_starting(monkeypatch):
+    # The first copy holds the lock at once but only listens once its
+    # window is built, about a second later.
+    code, shown, sent = _second_launch(monkeypatch, delivered=[False, False, True])
+
+    assert code == 0
+    assert shown == []
+    assert sent == ["show", "show", "show"]
+
+
 def test_a_second_launch_falls_back_to_the_notice(monkeypatch):
-    code, shown = _second_launch(monkeypatch, delivered=False)
+    code, shown, _sent = _second_launch(monkeypatch, delivered=False)
 
     assert code == 1
     assert shown == [False]
 
 
+def test_a_second_launch_opens_maphide_if_the_running_copy_closed(monkeypatch):
+    code, shown, _sent = _second_launch(
+        monkeypatch, delivered=False, running=False, acquires=(False, True)
+    )
+
+    assert code == "started"
+    assert shown == []
+
+
 def test_a_second_headless_launch_only_prints(monkeypatch):
-    code, shown = _second_launch(monkeypatch, delivered=True, argv=("map_hider.py", "--headless"))
+    code, shown, sent = _second_launch(
+        monkeypatch, delivered=True, argv=("map_hider.py", "--headless")
+    )
 
     assert code == 1
     assert shown == [True]
+    assert sent == []
 
 
 def test_quit_gives_up_quickly_when_the_running_copy_cannot_be_reached(monkeypatch):

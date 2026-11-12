@@ -4,28 +4,35 @@ All notable changes to MapHide are documented here.
 
 ## Unreleased
 
-### What's new
-
-- **Redesigned window.** A map preview shows at a glance whether your map is
-  covered, next to the live OBS scene and a short log of what MapHide is
-  doing. Settings slide in from the side.
-- **Themes.** Choose Field, the new look, or Legacy, the previous colors.
-- **Test Link.** Checks your OBS details without starting MapHide, and tells
-  you how many scenes carry your overlay source.
-- **Test button.** **Hold G to test** on the main screen shows and hides the
-  overlay exactly as your key does, so you can check your OBS setup without
-  switching to your game.
-- **New app icon.** A map with a red X, sharp at every size from the tray to
-  the taskbar.
-
-### Fixes
-
 - Fixed MapHide staying open in the background for several seconds, without
   hiding the overlay in OBS, when it was closed right after saving settings
   while connected.
-- Fixed changing **Connect on startup** or the theme, or saving settings that
-  don't affect the overlay, briefly dropping the OBS connection and hiding
-  the overlay.
+- Fixed changing "Connect on startup", or saving settings that don't affect
+  the overlay, briefly dropping the OBS connection and hiding the overlay.
+- Changed the app icon to a map with a red X, sharp at every size from the
+  tray to the taskbar.
+- Changed the window to a new design with new fonts. Settings now open over
+  the main screen instead of widening the window.
+- Added a map preview to the main screen that shows whether your map is
+  covered. Its animation pauses while another window is in front, so MapHide
+  uses no extra CPU while you play.
+- Added the live OBS scene and your key mode to the top of the main screen.
+- Added a field log to the main screen: a short running record of what
+  MapHide is doing. It never shows your OBS address.
+- Added a test button to the main screen that shows and hides the overlay the
+  same way your key does.
+- Added a Test Link button to Settings, which checks your OBS details without
+  starting MapHide.
+- Added the number of scenes that carry your overlay source to Settings,
+  shown after Test Link or while connected.
+- Added two themes, Field and Legacy (the previous colors), chosen in
+  Settings.
+- Added a link to MapHide's GitHub page in Settings, under About.
+- Changed the empty-password warning to text next to the Password field
+  instead of an icon.
+- Changed the debug log option to a switch under Behavior in Settings.
+- Changed the download size to about 35 MB, because of the new window.
+- Added Enter and Esc as ways to finish typing in a text field.
 
 ## v0.2.6 - 2026-10-27
 

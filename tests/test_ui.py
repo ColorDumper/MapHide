@@ -1,8 +1,7 @@
 """Tests for the parts of the window that can be checked without drawing it."""
 
-from maphide.config import default_config
-from maphide.overlay import CONNECTED, STOPPING, ServiceStatus
-from maphide.ui import NOTICE_MS, MapHideApp, status_line
+from maphide.controller import AppController
+from maphide.ui import NOTICE_MS, MapHideApp
 
 
 class _Var:
@@ -46,7 +45,7 @@ def make_app():
     app.root = _Root()
     app.help_text_var = _Var()
     app.help_label = _Label()
-    app.running_config = default_config()
+    app.controller = AppController(schedule=app.root.after)
     app.reset_confirm_pending = False
     app._notice_job = None
     return app
@@ -56,18 +55,6 @@ def run_pending_notice(app):
     ((_milliseconds, callback),) = app.root.jobs.values()
     app.root.jobs.clear()
     callback()
-
-
-def test_the_status_line_shows_the_services_own_wording():
-    status = ServiceStatus(CONNECTED, "Connected to OBS.")
-
-    assert status_line(status, restart_pending=False) == "Connected to OBS."
-
-
-def test_the_status_line_hides_the_stop_and_start_of_a_settings_restart():
-    status = ServiceStatus(STOPPING, "Stopping...")
-
-    assert status_line(status, restart_pending=True) == "Applying settings..."
 
 
 def test_a_notice_replaces_the_help_text_and_is_scheduled_to_go():

@@ -11,7 +11,10 @@ from maphide.config import (
     MIN_HIDE_DELAY_MS,
     MIN_PORT,
     AppConfig,
+    clamp_hide_delay,
+    config_from_form,
     default_config,
+    form_ready,
     load_config,
     save_config,
 )
@@ -149,3 +152,85 @@ def test_to_loggable_dict_excludes_the_password_and_the_network_address():
     assert "port" not in loggable
     assert loggable["hotkey"] == "M"
     assert loggable["scene_item_name"] == "Overlay"
+
+
+# --- building settings from what a form holds ---
+
+FORM = {
+    "host": " 10.0.0.2 ",
+    "port": " 4455 ",
+    "password": " pass ",
+    "scene_item_name": " Overlay ",
+    "hotkey": "m",
+    "toggle_mode": False,
+    "hide_hotkey": "",
+    "hide_delay_ms": 150.0,
+    "auto_connect": True,
+    "auto_reconnect": False,
+    "log_enabled": True,
+}
+
+
+def test_a_filled_in_form_becomes_settings():
+    cfg = config_from_form(**FORM)
+
+    assert cfg == AppConfig(
+        host="10.0.0.2",
+        port=4455,
+        password=" pass ",
+        scene_item_name="Overlay",
+        auto_connect=True,
+        auto_reconnect=False,
+        hotkey="M",
+        toggle_mode=False,
+        hide_hotkey="",
+        hide_delay_ms=150,
+        log_enabled=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("host", "  ", "OBS Host is required."),
+        ("port", "", "OBS Port is required."),
+        ("scene_item_name", "", "Overlay Source is required."),
+        ("hotkey", "ESC", "Show key supports A-Z."),
+        ("port", "44a5", "OBS Port must be a number."),
+    ],
+)
+def test_a_form_with_a_problem_says_what_to_fix(field, value, message):
+    with pytest.raises(ValueError, match=message):
+        config_from_form(**{**FORM, field: value})
+
+
+def test_toggle_mode_needs_a_usable_hide_key():
+    with pytest.raises(ValueError, match="Hide key supports"):
+        config_from_form(**{**FORM, "toggle_mode": True, "hide_hotkey": "CTRL"})
+
+    cfg = config_from_form(**{**FORM, "toggle_mode": True, "hide_hotkey": "shift+h"})
+    assert cfg.hide_hotkey == "SHIFT+H"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(250.7, 250), ("90", 90), (-5, MIN_HIDE_DELAY_MS), (10_000, MAX_HIDE_DELAY_MS), ("x", 120)],
+)
+def test_clamp_hide_delay(value, expected):
+    assert clamp_hide_delay(value) == expected
+
+
+def test_form_ready_replaces_what_a_form_cannot_show():
+    cfg = AppConfig(
+        host="h",
+        port=1,
+        password="",
+        scene_item_name="s",
+        hotkey="F13",
+        hide_hotkey="CTRL",
+        hide_delay_ms=9_999,
+    )
+
+    ready = form_ready(cfg)
+
+    assert (ready.hotkey, ready.hide_hotkey, ready.hide_delay_ms) == ("G", "H", MAX_HIDE_DELAY_MS)

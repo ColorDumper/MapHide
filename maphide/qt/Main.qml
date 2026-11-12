@@ -11,6 +11,7 @@ Window {
     readonly property color coverRed: "#d9483b"
     readonly property color coverRedText: "#ff7a6b"
     property bool drawerOpen: false
+    onDrawerOpenChanged: if (!drawerOpen) settings.stopCapture()
 
     width: 480
     height: 748
@@ -30,57 +31,6 @@ Window {
 
     // Letter spacing as a fraction of the font size; Qt wants pixels.
     function em(size, amount) { return size * amount }
-
-    component Label: Text {
-        color: win.t.text
-        font.family: "Barlow"
-        renderType: Text.NativeRendering
-    }
-    component Condensed: Label {
-        font.family: "Barlow Condensed"
-        font.weight: Font.DemiBold
-    }
-    component Mono: Label {
-        font.family: "IBM Plex Mono"
-    }
-
-    // A button that sinks 2px while pressed. `base` is its bottom edge.
-    component PressButton: Item {
-        id: pb
-        property color fill
-        property color edge
-        property int base: 1
-        property alias pressed: area.pressed
-        default property alias content: face.data
-        signal clicked()
-        signal down()
-        signal up()
-
-        Rectangle {
-            id: face
-            width: parent.width
-            height: parent.height
-            y: pb.pressed ? 2 : 0
-            color: pb.fill
-            border.color: pb.edge
-            Behavior on y { NumberAnimation { duration: 80 } }
-            Rectangle {
-                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                height: pb.base
-                color: pb.edge
-            }
-        }
-        MouseArea {
-            id: area
-            anchors.fill: parent
-            enabled: pb.enabled
-            cursorShape: Qt.PointingHandCursor
-            onClicked: pb.clicked()
-            onPressed: pb.down()
-            onReleased: pb.up()
-            onCanceled: pb.up()
-        }
-    }
 
     Item {
         id: stage
@@ -640,7 +590,7 @@ Window {
             MouseArea { anchors.fill: parent; onClicked: win.drawerOpen = false }
         }
 
-        // Settings drawer (only the theme picker for now).
+        // Settings drawer: slides in over the main screen.
         Rectangle {
             id: drawer
             width: 436
@@ -652,99 +602,11 @@ Window {
             Rectangle { width: 1; height: parent.height; color: win.t.border2 }
             MouseArea { anchors.fill: parent }
 
-            Column {
-                x: 18
-                y: 14
-                width: parent.width - 36
-                spacing: 20
-                Item {
-                    width: parent.width
-                    height: 44
-                    Condensed {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "SETTINGS"
-                        font.pixelSize: 28
-                        font.weight: Font.Bold
-                        font.letterSpacing: win.em(28, 0.08)
-                    }
-                    PressButton {
-                        anchors.right: parent.right
-                        width: 44; height: 44
-                        fill: win.t.panel
-                        edge: win.t.border
-                        onClicked: win.drawerOpen = false
-                        Shape {
-                            anchors.centerIn: parent
-                            width: 16; height: 16
-                            preferredRendererType: Shape.CurveRenderer
-                            ShapePath {
-                                strokeColor: win.t.text; strokeWidth: 2.4; fillColor: "transparent"
-                                capStyle: ShapePath.SquareCap
-                                PathSvg { path: "M6 14 L11 8 L6 2" }
-                            }
-                        }
-                    }
-                }
-                Column {
-                    width: parent.width
-                    spacing: 8
-                    Row {
-                        spacing: 10
-                        Mono { text: "06"; font.pixelSize: 12; color: win.t.accent_text; anchors.baseline: themeHeading.baseline }
-                        Condensed {
-                            id: themeHeading
-                            text: "THEME"
-                            font.pixelSize: 17
-                            font.letterSpacing: win.em(17, 0.12)
-                        }
-                    }
-                    Row {
-                        width: parent.width
-                        spacing: 8
-                        Repeater {
-                            model: [
-                                { name: "field", label: "FIELD", swatches: ["#13140f", "#24261d", "#d9483b", "#ebe5d3"] },
-                                { name: "legacy", label: "LEGACY", swatches: ["#12161d", "#222c3b", "#4da3ff", "#e6edf7"] }
-                            ]
-                            delegate: PressButton {
-                                id: tile
-                                required property var modelData
-                                width: (parent.width - 8) / 2
-                                height: 74
-                                fill: win.t.panel
-                                edge: "transparent"
-                                onClicked: backend.setTheme(modelData.name)
-                                Rectangle {
-                                    anchors.fill: parent
-                                    color: "transparent"
-                                    border.width: 2
-                                    border.color: backend.themeName === tile.modelData.name ? win.t.accent : win.t.border
-                                }
-                                Column {
-                                    x: 12; y: 12
-                                    spacing: 8
-                                    Row {
-                                        spacing: 4
-                                        Repeater {
-                                            model: tile.modelData.swatches
-                                            delegate: Rectangle {
-                                                required property string modelData
-                                                width: 22; height: 22
-                                                color: modelData
-                                            }
-                                        }
-                                    }
-                                    Condensed {
-                                        text: tile.modelData.label
-                                        font.pixelSize: 16
-                                        font.weight: Font.Bold
-                                        font.letterSpacing: win.em(16, 0.12)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            Settings {
+                id: settings
+                anchors.fill: parent
+                anchors.leftMargin: 1
+                onCloseRequested: win.drawerOpen = false
             }
         }
     }

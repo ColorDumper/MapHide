@@ -7,6 +7,7 @@ import pytest
 
 from maphide.config import config_from_form, default_config
 from maphide.controller import HistoryEntry
+from maphide.hotkeys import HIDE_KEY_HELP, SHOW_KEY_HELP
 from maphide.overlay import (
     CONNECTED,
     CONNECTING,
@@ -20,17 +21,27 @@ from maphide.overlay import (
 )
 from maphide.qt.view import (
     APPLYING_HINT,
+    CAPTURE_HIDE,
+    CAPTURE_SHOW,
     CONNECTING_HINT,
     COVERING_HINT,
+    QT_KEY_ESCAPE,
+    QT_KEY_SHIFT,
     SCREEN_CONNECTED,
     SCREEN_CONNECTING,
     SCREEN_COVERING,
     SCREEN_STOPPED,
+    SOURCE_FOLLOWS,
+    SOURCE_UNKNOWN,
     STOPPED_HINT,
     STOPPING_HINT,
+    captured_hotkey,
     form_values,
+    hotkey_from_key,
+    key_label,
     main_view,
     new_entries,
+    source_line,
 )
 
 
@@ -197,3 +208,77 @@ def test_the_form_round_trips_a_config():
 
     assert values["port"] == "4456"
     assert config_from_form(**values) == cfg
+
+
+# Key capture.
+
+
+@pytest.mark.parametrize(
+    ("key", "shift", "hotkey"),
+    [
+        (ord("G"), False, "G"),
+        (ord("G"), True, "SHIFT+G"),
+        (QT_KEY_ESCAPE, False, "ESC"),
+        (QT_KEY_SHIFT, False, "SHIFT"),
+        (ord("1"), False, None),
+        (0x01000004, False, None),  # Return
+    ],
+)
+def test_qt_keys_become_hotkey_names(key, shift, hotkey):
+    assert hotkey_from_key(key, shift) == hotkey
+
+
+@pytest.mark.parametrize(
+    ("key", "shift", "result"),
+    [
+        (ord("M"), False, ("M", None)),
+        (ord("M"), True, (None, SHOW_KEY_HELP)),
+        (QT_KEY_ESCAPE, False, (None, SHOW_KEY_HELP)),
+        (QT_KEY_SHIFT, False, (None, SHOW_KEY_HELP)),
+    ],
+)
+def test_the_show_key_takes_letters_only(key, shift, result):
+    assert captured_hotkey(CAPTURE_SHOW, key, shift) == result
+
+
+@pytest.mark.parametrize(
+    ("key", "shift", "result"),
+    [
+        (ord("H"), False, ("H", None)),
+        (ord("H"), True, ("SHIFT+H", None)),
+        (QT_KEY_ESCAPE, False, ("ESC", None)),
+        (QT_KEY_SHIFT, False, ("SHIFT", None)),
+        (ord("5"), False, (None, HIDE_KEY_HELP)),
+    ],
+)
+def test_the_hide_key_also_takes_esc_and_shift(key, shift, result):
+    assert captured_hotkey(CAPTURE_HIDE, key, shift) == result
+
+
+@pytest.mark.parametrize(
+    ("hotkey", "label"), [("G", "G"), ("SHIFT+G", "Shift+G"), ("ESC", "Esc"), ("SHIFT", "Shift")]
+)
+def test_key_caps_read_naturally(hotkey, label):
+    assert key_label(hotkey) == label
+
+
+# The cover source line.
+
+
+@pytest.mark.parametrize(
+    ("count", "text", "warning"),
+    [
+        (None, SOURCE_UNKNOWN, False),
+        (1, f"Found in 1 scene. {SOURCE_FOLLOWS}", False),
+        (4, f"Found in 4 scenes. {SOURCE_FOLLOWS}", False),
+    ],
+)
+def test_the_source_line_counts_scenes(count, text, warning):
+    assert source_line(count) == (text, warning)
+
+
+def test_a_source_in_no_scene_is_a_warning():
+    text, warning = source_line(0)
+
+    assert text.startswith("Not found in any scene.")
+    assert warning

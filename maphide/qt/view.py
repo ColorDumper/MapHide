@@ -5,6 +5,7 @@ Plain Python with no Qt, so every rule here is tested without a window.
 
 from dataclasses import dataclass
 
+from ..hotkeys import HIDE_KEY_HELP, SHOW_KEY_HELP, is_valid_hide_hotkey, is_valid_show_hotkey
 from ..overlay import CONNECTED, CONNECTING, IDLE, RECONNECTING, STOPPED, STOPPED_MESSAGE
 
 # The four looks of the main screen.
@@ -129,3 +130,58 @@ def form_values(cfg):
     values = {field: getattr(cfg, field) for field in FORM_FIELDS}
     values["port"] = str(cfg.port)
     return values
+
+
+# Key capture. Qt's key codes for the keys MapHide can use: letters are
+# their ASCII codes, as in Qt.Key_A to Qt.Key_Z.
+QT_KEY_ESCAPE = 0x01000000
+QT_KEY_SHIFT = 0x01000020
+CAPTURE_SHOW = "show"
+CAPTURE_HIDE = "hide"
+
+
+def hotkey_from_key(key, shift_held):
+    """The hotkey name for a Qt key code - "G", "SHIFT+G", "ESC", "SHIFT" -
+    or None for a key MapHide can't use."""
+    if ord("A") <= key <= ord("Z"):
+        letter = chr(key)
+        return f"SHIFT+{letter}" if shift_held else letter
+    if key == QT_KEY_ESCAPE:
+        return "ESC"
+    if key == QT_KEY_SHIFT:
+        return "SHIFT"
+    return None
+
+
+def captured_hotkey(target, key, shift_held):
+    """(hotkey, None) when the key works for `target` (CAPTURE_SHOW or
+    CAPTURE_HIDE), else (None, the help to show)."""
+    hotkey = hotkey_from_key(key, shift_held)
+    if target == CAPTURE_SHOW:
+        if hotkey is not None and is_valid_show_hotkey(hotkey):
+            return hotkey, None
+        return None, SHOW_KEY_HELP
+    if hotkey is not None and is_valid_hide_hotkey(hotkey):
+        return hotkey, None
+    return None, HIDE_KEY_HELP
+
+
+def key_label(hotkey):
+    """A hotkey as its key cap shows it: "Shift+G", "Esc", "G"."""
+    return "+".join(part if len(part) == 1 else part.title() for part in hotkey.split("+"))
+
+
+# The cover source line in Settings.
+SOURCE_UNKNOWN = "Test the link to see which scenes carry it."
+SOURCE_FOLLOWS = "MapHide follows it whichever scene is live."
+
+
+def source_line(count):
+    """(text, is_warning) for how many scenes carry the cover source, or
+    for None when that isn't known yet."""
+    if count is None:
+        return SOURCE_UNKNOWN, False
+    if count == 0:
+        return "Not found in any scene. Check the name matches the source in OBS.", True
+    scenes = "scene" if count == 1 else "scenes"
+    return f"Found in {count} {scenes}. {SOURCE_FOLLOWS}", False

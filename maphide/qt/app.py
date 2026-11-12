@@ -20,7 +20,15 @@ from ..overlay import human_ts
 from ..paths import APP_DIR, APP_USER_MODEL_ID, APP_VERSION, ICON_RUNTIME_PNG_PATH
 from ..themes import THEMES, theme_name
 from ..winutil import apply_dark_title_bar, set_app_id
-from .view import form_values, main_view, new_entries
+from .view import (
+    FORM_FIELDS,
+    captured_hotkey,
+    form_values,
+    key_label,
+    main_view,
+    new_entries,
+    source_line,
+)
 
 QML_PATH = APP_DIR / "maphide" / "qt" / "Main.qml"
 FONTS_DIR = APP_DIR / "assets" / "fonts"
@@ -61,11 +69,20 @@ class Backend(QObject):
     lineAdded = Signal(str, str, str)
     # The window should hide now: MapHide is closing.
     hideRequested = Signal()
+    # The settings form's values changed from this side (load, reset).
+    formChanged = Signal()
+    # Test Link, the cover source line.
+    settingsChanged = Signal()
+    saved = Signal()
+    # A reason to show in the drawer's footer.
+    saveFailed = Signal(str)
 
-    def __init__(self, controller=None, quit_app=None):
+    def __init__(self, quit_app=None, schedule=_schedule, **controller_options):
+        """`controller_options` go to the AppController - a test passes a
+        stand-in service, save or connection check there."""
         super().__init__()
-        self.controller = controller or AppController(
-            schedule=_schedule, notify=self.notice, on_change=self.refresh
+        self.controller = AppController(
+            schedule=schedule, notify=self.notice, on_change=self.refresh, **controller_options
         )
         # exit(), not quit(): Qt's quit() first asks every window to close
         # and gives up if one refuses - and this window refuses until the
@@ -74,15 +91,21 @@ class Backend(QObject):
         self._view = main_view(self.controller)
         self._last_entry = None
         self._form = form_values(self.controller.running_config)
+        # "idle", "busy", "ok" or "failed", and what a failure said.
+        self._test_state = "idle"
+        self._test_message = ""
+        # The last Test Link's scene count, and the source name it was for.
+        self._tested_source = None
+        self._tested_count = None
+        self._settings = self._settings_view()
         self._poll_timer = QTimer(self, interval=POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll)
 
-    def load(self):
+    def load(self, **load_options):
         """Read the saved settings and start watching the worker. Call once
         the window exists, so it sees the first lines of the field log."""
-        cfg, loaded = self.controller.load()
-        self._form = form_values(cfg)
-        self.themeChanged.emit()
+        cfg, loaded = self.controller.load(**load_options)
+        self._set_form(cfg)
         if not loaded:
             self.notice(CONFIG_NOT_LOADED)
         self.refresh()
@@ -105,6 +128,31 @@ class Backend(QObject):
         if view != self._view:
             self._view = view
             self.changed.emit()
+        settings = self._settings_view()
+        if settings != self._settings:
+            self._settings = settings
+            self.settingsChanged.emit()
+
+    def _source_count(self):
+        """How many scenes carry the source named in the form, if known:
+        live from the worker while it runs with that name, else from the
+        last Test Link for it."""
+        source = str(self._form["scene_item_name"]).strip()
+        live = self.controller.snapshot.source_scene_count
+        if live is not None and source == self.controller.running_config.scene_item_name:
+            return live
+        if source == self._tested_source:
+            return self._tested_count
+        return None
+
+    def _settings_view(self):
+        text, warning = source_line(self._source_count())
+        return (text, warning, self._test_state, self._test_message)
+
+    def _set_form(self, cfg):
+        self._form = form_values(cfg)
+        self.formChanged.emit()
+        self.themeChanged.emit()
 
     def notice(self, text):
         """Tell the user something in the field log, such as why Start
@@ -193,17 +241,115 @@ class Backend(QObject):
     def holdUp(self):
         self.controller.set_manual_input(False)
 
-    @Slot(str)
-    def setTheme(self, name):
-        self._form["theme"] = theme_name(name)
-        self.themeChanged.emit()
-
     @Slot()
     def requestClose(self):
         """The window's close button: stop the worker, letting it hide the
         overlay, then quit."""
         if self.controller.begin_exit(self._quit_app):
             self.hideRequested.emit()
+
+    # The settings drawer.
+
+    @Property("QVariantMap", notify=formChanged)
+    def form(self):
+        return self._form
+
+    @Slot(str, "QVariant")
+    def setField(self, name, value):
+        if name not in FORM_FIELDS:
+            return
+        if name == "hide_delay_ms":
+            # QML numbers arrive as floats.
+            value = round(value)
+        self._form[name] = value
+        if name == "theme":
+            self.themeChanged.emit()
+        self.formChanged.emit()
+        self.refresh()
+
+    @Slot(str, int, bool, result=str)
+    def captureKey(self, target, key, shift_held):
+        """Set the show or hide key from a key press. Returns "" when it
+        took, or the help to show when the key can't be used."""
+        hotkey, problem = captured_hotkey(target, key, shift_held)
+        if hotkey is None:
+            return problem
+        self._form["hotkey" if target == "show" else "hide_hotkey"] = hotkey
+        self.formChanged.emit()
+        return ""
+
+    @Slot(str, result=str)
+    def keyLabel(self, hotkey):
+        return key_label(hotkey)
+
+    @Property(str, notify=settingsChanged)
+    def sourceText(self):
+        return self._settings[0]
+
+    @Property(bool, notify=settingsChanged)
+    def sourceWarning(self):
+        return self._settings[1]
+
+    @Property(str, notify=settingsChanged)
+    def testState(self):
+        return self._test_state
+
+    @Property(str, notify=settingsChanged)
+    def testMessage(self):
+        return self._test_message
+
+    def _set_test(self, state, message=""):
+        self._test_state = state
+        self._test_message = message
+        self.refresh()
+
+    @Slot()
+    def testLink(self):
+        form = self._form
+        source = str(form["scene_item_name"]).strip()
+
+        def done(result):
+            if result.ok:
+                self._tested_source = source
+                self._tested_count = result.source_scene_count
+            self._set_test("ok" if result.ok else "failed", result.message)
+
+        try:
+            started = self.controller.check_connection(
+                form["host"], form["port"], form["password"], source, done
+            )
+        except ValueError as exc:
+            self._set_test("failed", str(exc))
+            return
+        if started:
+            self._set_test("busy")
+
+    @Slot()
+    def clearTest(self):
+        if self._test_state != "busy":
+            self._set_test("idle")
+
+    @Slot()
+    def save(self):
+        try:
+            self.controller.save(config_from_form(**self._form))
+        except ValueError as exc:
+            self.saveFailed.emit(str(exc))
+            return
+        except OSError as exc:
+            self.saveFailed.emit(f"Couldn't save settings: {plain_reason(exc)}")
+            return
+        self.saved.emit()
+
+    @Slot()
+    def resetDefaults(self):
+        try:
+            cfg = self.controller.restore_defaults()
+        except OSError as exc:
+            self.saveFailed.emit(f"Couldn't save settings: {plain_reason(exc)}")
+            return
+        self._set_form(cfg)
+        self.saved.emit()
 
 
 def load_fonts():

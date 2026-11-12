@@ -11,16 +11,24 @@ pytest.importorskip("PySide6")
 import PySide6.QtQuick  # noqa: E402,F401
 from PySide6.QtCore import QEvent, QObject, Qt  # noqa: E402
 from PySide6.QtGui import QGuiApplication, QKeyEvent  # noqa: E402
+from test_controller import FakeService  # noqa: E402
 
+from maphide.overlay import CONNECTED, RECONNECTING, ServiceStatus  # noqa: E402
 from maphide.qt.app import Backend, build_window  # noqa: E402
+from maphide.qt.view import RESET_DISCONNECTS, RESET_STOPS  # noqa: E402
 
 SAVED = {"host": "10.0.0.2", "port": "4455", "scene_item_name": "Overlay"}
 
 
 @pytest.fixture
-def setup(qt_app):
+def service():
+    return FakeService()
+
+
+@pytest.fixture
+def setup(qt_app, service):
     saved = []
-    backend = Backend(update_checks=False, save=saved.append)
+    backend = Backend(update_checks=False, save=saved.append, service=service)
     engine, window, warnings = build_window(backend)
     assert window is not None, warnings
     for name, value in SAVED.items():
@@ -138,3 +146,68 @@ def test_the_unsaved_note_goes_once_settings_close(setup):
 
     assert not unsaved_note(window).property("visible")
     assert backend.hasUnsavedChanges is False
+
+
+# What a clicked Reset would interrupt.
+
+
+def reset_warning(window):
+    return window.findChild(QObject, "resetWarning")
+
+
+def arm_reset(window):
+    """Reset's first click: it now waits for a second."""
+    window.findChild(QObject, "settings").setProperty("resetArmed", True)
+    QGuiApplication.processEvents()
+
+
+def run(backend, service, state, message):
+    backend.primary()
+    service.status = ServiceStatus(state, message)
+    backend.refresh()
+    QGuiApplication.processEvents()
+
+
+def test_reset_warns_it_disconnects_while_connected(setup, service):
+    backend, window = setup
+    run(backend, service, CONNECTED, "Connected to OBS.")
+
+    arm_reset(window)
+
+    assert reset_warning(window).property("visible")
+    assert reset_warning(window).property("text") == RESET_DISCONNECTS
+
+
+def test_reset_warns_it_stops_maphide_while_still_connecting(setup, service):
+    backend, window = setup
+    run(backend, service, RECONNECTING, "Reconnecting... 2s")
+
+    arm_reset(window)
+
+    assert reset_warning(window).property("text") == RESET_STOPS
+
+
+def test_reset_warns_nothing_until_clicked(setup, service):
+    backend, window = setup
+    run(backend, service, CONNECTED, "Connected to OBS.")
+
+    assert not reset_warning(window).property("visible")
+
+
+def test_reset_warns_nothing_while_stopped(setup):
+    backend, window = setup
+
+    arm_reset(window)
+
+    assert not reset_warning(window).property("visible")
+
+
+def test_the_reset_warning_shows_instead_of_the_unsaved_note(setup, service):
+    backend, window = setup
+    run(backend, service, CONNECTED, "Connected to OBS.")
+    type_into(window, host_field(window), "9")
+
+    arm_reset(window)
+
+    assert reset_warning(window).property("visible")
+    assert not unsaved_note(window).property("visible")

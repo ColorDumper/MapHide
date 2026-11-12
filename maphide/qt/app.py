@@ -346,6 +346,10 @@ class Backend(QObject):
     def testEnabled(self):
         return self._view.test_enabled
 
+    @Property(str, notify=changed)
+    def resetWarning(self):
+        return self._view.reset_warning
+
     @Property("QVariantMap", notify=themeChanged)
     def theme(self):
         return theme_colors(theme_name(self._form["theme"]))

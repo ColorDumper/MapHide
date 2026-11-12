@@ -703,11 +703,28 @@ Item {
                 font.pixelSize: 12
                 color: settings.t.warn
             }
+            // One message at a time, in this order: a problem, the SAVED
+            // stamp, what a clicked Reset would interrupt, unsaved changes.
+            readonly property bool showResetWarning: settings.resetArmed
+                && backend.resetWarning !== ""
+                && settings.footerProblem === "" && !settings.savedStamp
+            Label {
+                objectName: "resetWarning"
+                anchors.fill: parent
+                visible: parent.showResetWarning
+                text: backend.resetWarning
+                wrapMode: Text.Wrap
+                verticalAlignment: Text.AlignVCenter
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: 12
+                color: settings.t.warn
+            }
             // Closing Settings without Save puts the saved settings back.
             Label {
                 objectName: "unsavedNote"
                 anchors.fill: parent
-                visible: backend.hasUnsavedChanges && settings.footerProblem === "" && !settings.savedStamp
+                visible: backend.hasUnsavedChanges && settings.footerProblem === ""
+                    && !settings.savedStamp && !parent.showResetWarning
                 text: "Unsaved changes"
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignHCenter

@@ -55,6 +55,8 @@ All notable changes to MapHide are documented here.
   Save puts your saved settings back, and Start uses your saved settings
   instead of saving what's in Settings. Settings shows Unsaved changes while
   you have any.
+- Added a warning when you click Reset while MapHide is running, saying that
+  Reset disconnects MapHide from OBS.
 
 ## v0.2.6 - 2026-10-27
 

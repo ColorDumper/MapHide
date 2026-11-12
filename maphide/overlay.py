@@ -64,6 +64,52 @@ class ServiceStatus:
     message: str
 
 
+# What each event is about, so a window can choose its own wording and color
+# for it rather than parse the message. The message stays the plain-English
+# version, for the history list, the debug log and headless mode.
+EVENT_LOG_FAILED = "log_failed"
+EVENT_CONNECTING = "connecting"
+EVENT_CONNECTED = "connected"
+EVENT_CONNECT_FAILED = "connect_failed"
+EVENT_RECONNECT_WAIT = "reconnect_wait"
+EVENT_LINK_LOST = "link_lost"
+EVENT_OVERLAY_MAY_REMAIN = "overlay_may_remain"
+EVENT_SCENE = "scene"
+EVENT_SOURCE_FOUND = "source_found"
+EVENT_SCENE_DROPPED = "scene_dropped"
+EVENT_OVERLAY_SHOWN = "overlay_shown"
+EVENT_OVERLAY_HIDDEN = "overlay_hidden"
+EVENT_STOPPED = "stopped"
+
+
+@dataclass(frozen=True)
+class ObsSnapshot:
+    """What OBS looks like from here right now, for a window to draw.
+
+    `scene` is OBS's live (program) scene, or None while it isn't known -
+    not connected yet, or the link is down. `covered` is True only while the
+    overlay was last told to show AND the live scene carries the source, so
+    it never claims the map is covered on a scene the source isn't in.
+    `source_scene_count` is how many scenes carry the source, or None while
+    unknown.
+    """
+
+    scene: str | None = None
+    covered: bool = False
+    source_scene_count: int | None = None
+
+
+def obs_snapshot(scene_name, scene_items, overlay_visible):
+    """The ObsSnapshot for the worker's current view of OBS."""
+    if scene_name is None:
+        return ObsSnapshot()
+    return ObsSnapshot(
+        scene=scene_name,
+        covered=overlay_visible and scene_items.get(scene_name) is not None,
+        source_scene_count=sum(item is not None for item in scene_items.values()),
+    )
+
+
 def scene_is_stale(scene_items, scene_synced, scene_name, target_visible):
     """Does this scene carry the source, and does it not yet match
     `target_visible`? A scene that has never been written to at all counts
@@ -205,6 +251,7 @@ class MapHideService:
         self._events = queue.Queue()
         self._running = False
         self._status = ServiceStatus(IDLE, "Idle")
+        self._snapshot = ObsSnapshot()
         self._status_lock = threading.Lock()
 
     @property
@@ -221,6 +268,17 @@ class MapHideService:
         is drawn: unlike the event queue, which is a history to replay in
         order, this is always current."""
         return self._status
+
+    @property
+    def snapshot(self):
+        """The live scene, whether the map is covered, and how many scenes
+        carry the source, as an ObsSnapshot. Always current, like status."""
+        return self._snapshot
+
+    def _publish(self, snapshot):
+        with self._status_lock:
+            if snapshot != self._snapshot:
+                self._snapshot = snapshot
 
     def _set_status(self, state, message, force=False):
         with self._status_lock:
@@ -242,6 +300,7 @@ class MapHideService:
         )
         self._running = True
         self._set_status(CONNECTING, "Starting...", force=True)
+        self._publish(ObsSnapshot())
         self._thread.start()
 
     def stop(self):
@@ -256,7 +315,7 @@ class MapHideService:
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
-    def _emit(self, kind, message, history=True, log=True, detail=None, state=None):
+    def _emit(self, kind, code, message, history=True, log=True, detail=None, state=None):
         # Every event reaches the debug log unless `log` is False, which is for
         # repeats that would only crowd out the lines worth reading; `detail`
         # is extra for the debug log alone, never shown in the window.
@@ -274,6 +333,7 @@ class MapHideService:
         self._events.put(
             {
                 "kind": kind,
+                "code": code,
                 "message": message,
                 "timestamp": human_ts(),
                 "history": history,
@@ -299,7 +359,14 @@ class MapHideService:
             message = f"Reconnecting... {elapsed:g}s"
             if note:
                 message += f". {note}"
-            self._emit("status", message, history=False, log=False, state=RECONNECTING)
+            self._emit(
+                "status",
+                EVENT_RECONNECT_WAIT,
+                message,
+                history=False,
+                log=False,
+                state=RECONNECTING,
+            )
 
     def _run(self, cfg):
         try:
@@ -308,7 +375,9 @@ class MapHideService:
             # A log that cannot start must never keep the worker from starting.
             log_start_error = plain_reason(exc)
         if log_start_error is not None:
-            self._emit("status", f"Could not start the debug log: {log_start_error}")
+            self._emit(
+                "status", EVENT_LOG_FAILED, f"Could not start the debug log: {log_start_error}"
+            )
         elif cfg.log_enabled:
             config_summary = ", ".join(
                 f"{key}={value}" for key, value in cfg.to_loggable_dict().items()
@@ -349,7 +418,12 @@ class MapHideService:
                         # that - false for a genuinely new attempt, true partway
                         # through an already-acknowledged run of failures.
                         if not failure_in_history:
-                            self._emit("status", "Connecting to OBS...", state=CONNECTING)
+                            self._emit(
+                                "status",
+                                EVENT_CONNECTING,
+                                "Connecting to OBS...",
+                                state=CONNECTING,
+                            )
                         client = connect_obs(cfg.host, cfg.port, cfg.password)
                         active_scene_name = None
                         last_scene_refresh = datetime.min
@@ -367,7 +441,7 @@ class MapHideService:
                         failure_in_history = False
                         overlay_may_remain = False
                         had_successful_connection = True
-                        self._emit("status", "Connected to OBS.", state=CONNECTED)
+                        self._emit("status", EVENT_CONNECTED, "Connected to OBS.", state=CONNECTED)
                         if failed_attempts:
                             logger.info("Connected after %d failed attempts.", failed_attempts)
                         failed_attempts = 0
@@ -397,6 +471,7 @@ class MapHideService:
                         # takes over the status line.
                         self._emit(
                             "error",
+                            EVENT_CONNECT_FAILED,
                             error_message,
                             history=not failure_in_history,
                             log=not failure_in_history,
@@ -443,7 +518,7 @@ class MapHideService:
                             status_message = scene_status(active_scene_name, is_first_detection)
                             if scene_items.get(active_scene_name) is None:
                                 status_message += f" Source '{cfg.scene_item_name}' not found."
-                            self._emit("status", status_message)
+                            self._emit("status", EVENT_SCENE, status_message)
                             # Most switches need nothing here at all: the scene you were
                             # on was kept in sync continuously by every toggle while it
                             # was active, and any other scene the background catch-up
@@ -476,6 +551,7 @@ class MapHideService:
                             )
                             self._emit(
                                 "status",
+                                EVENT_SOURCE_FOUND,
                                 f"Source '{cfg.scene_item_name}' found in scene: "
                                 f"{active_scene_name}.",
                             )
@@ -513,13 +589,13 @@ class MapHideService:
                     if action == SHOW:
                         sync_scene(client, scene_items, scene_synced, active_scene_name, True)
                         if active_scene_has_source:
-                            self._emit("overlay", "Overlay shown.")
+                            self._emit("overlay", EVENT_OVERLAY_SHOWN, "Overlay shown.")
                         else:
                             logger.info("Show requested, but the active scene has no source.")
                     elif action == HIDE:
                         sync_scene(client, scene_items, scene_synced, active_scene_name, False)
                         if active_scene_has_source:
-                            self._emit("overlay", "Overlay hidden.")
+                            self._emit("overlay", EVENT_OVERLAY_HIDDEN, "Overlay hidden.")
                         else:
                             logger.info("Hide requested, but the active scene has no source.")
 
@@ -540,9 +616,13 @@ class MapHideService:
                         )
                         self._emit(
                             "status",
+                            EVENT_SCENE_DROPPED,
                             f"Scene '{dropped_scene}' is no longer available in OBS.",
                         )
 
+                    self._publish(
+                        obs_snapshot(active_scene_name, scene_items, state.overlay_visible)
+                    )
                     time.sleep(POLL_INTERVAL)
                 except ObsConnectionError as exc:
                     error_message = str(exc)
@@ -558,6 +638,7 @@ class MapHideService:
                     # and "stopped" takes over the status line.
                     self._emit(
                         "error",
+                        EVENT_LINK_LOST,
                         error_message,
                         detail=describe_cause(exc),
                         state=RECONNECTING if cfg.auto_reconnect else None,
@@ -569,7 +650,7 @@ class MapHideService:
                     # something can tell it otherwise.
                     overlay_may_remain = state.overlay_visible
                     if overlay_may_remain:
-                        self._emit("status", OVERLAY_MAY_REMAIN_NOTE)
+                        self._emit("status", EVENT_OVERLAY_MAY_REMAIN, OVERLAY_MAY_REMAIN_NOTE)
                     disconnect_obs(client)
                     client = None
                     # desired_visible, overlay_visible, and hide_requested_at deliberately
@@ -579,6 +660,8 @@ class MapHideService:
                     # reconnect, and dropping the third would strand an already-armed hide.
                     active_scene_name = None
                     scene_synced = {}
+                    # Nothing about OBS is known while the link is down.
+                    self._publish(ObsSnapshot())
                     state = seed_key_edge_tracking(state, cfg, show_vk_codes, hide_vk_codes)
                     if not cfg.auto_reconnect:
                         final_status_message = (
@@ -625,9 +708,11 @@ class MapHideService:
             # has already reached the queue - otherwise the new worker's own
             # events could land ahead of this one, and a stale "stopped" line
             # would end up in the history after theirs.
+            self._publish(ObsSnapshot())
             try:
                 self._emit(
                     "stopped",
+                    EVENT_STOPPED,
                     final_status_message,
                     history=final_status_message != last_history_error,
                     state=STOPPED,

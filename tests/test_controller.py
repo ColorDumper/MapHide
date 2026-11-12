@@ -14,7 +14,7 @@ from maphide.controller import (
     help_text,
     status_line,
 )
-from maphide.overlay import CONNECTED, STOPPED, STOPPING, ServiceStatus
+from maphide.overlay import CONNECTED, STOPPED, STOPPING, ObsSnapshot, ServiceStatus
 
 
 def make_config(**overrides):
@@ -36,6 +36,7 @@ class FakeService:
         self.events = queue.Queue()
         self.is_running = False
         self.status = ServiceStatus(STOPPED, "Idle")
+        self.snapshot = ObsSnapshot()
         self.started_with = []
         self.stop_requests = 0
 
@@ -379,3 +380,11 @@ def test_exiting_during_a_restart_does_not_start_the_new_worker(h):
     assert h.service.started_with == [make_config()]
     assert h.service.is_running is False
     assert finished == [True]
+
+
+def test_the_snapshot_comes_straight_from_the_worker(h):
+    h.service.snapshot = ObsSnapshot(scene="Gameplay", covered=True, source_scene_count=3)
+
+    assert h.controller.snapshot == ObsSnapshot(
+        scene="Gameplay", covered=True, source_scene_count=3
+    )

@@ -76,6 +76,12 @@ class AppController:
         return help_text(self.running_config)
 
     @property
+    def snapshot(self):
+        """The live scene, whether the map is covered, and how many scenes
+        carry the source - see overlay.ObsSnapshot."""
+        return self.service.snapshot
+
+    @property
     def can_start(self):
         # Derived from what the service is doing, not from the event stream.
         # A restart stops and starts the same service, so its "stopped" event

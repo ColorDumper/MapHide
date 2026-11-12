@@ -183,16 +183,18 @@ def _scene_call(scene_name, scene_item_id, enabled):
 # --- MapHideService._emit -----------------------------------------------------
 
 
-def test_emit_includes_the_event_kind():
+def test_emit_includes_the_event_kind_and_code():
     # map_hider.py's run_headless() branches on event["kind"] to know when
     # an error or a stop means the run is truly over, not just mid-retry - a
-    # dict missing that key crashes the moment the first event arrives.
+    # dict missing that key crashes the moment the first event arrives. A
+    # window reads event["code"] to pick its own wording for the event.
     service = MapHideService()
 
-    service._emit("status", "Connected to OBS.")
+    service._emit("status", overlay_module.EVENT_CONNECTED, "Connected to OBS.")
 
     event = service.events.get_nowait()
     assert event["kind"] == "status"
+    assert event["code"] == overlay_module.EVENT_CONNECTED
 
 
 def test_a_new_service_reads_as_idle():
@@ -268,10 +270,10 @@ def test_stopped_is_queued_before_running_flips_false(monkeypatch):
     running_when_stopped_was_emitted = []
     original_emit = service._emit
 
-    def spying_emit(kind, message, **kwargs):
+    def spying_emit(kind, code, message, **kwargs):
         if kind == "stopped":
             running_when_stopped_was_emitted.append(service.is_running)
-        original_emit(kind, message, **kwargs)
+        original_emit(kind, code, message, **kwargs)
 
     monkeypatch.setattr(service, "_emit", spying_emit)
 
@@ -395,8 +397,8 @@ def test_a_mid_session_drop_updates_the_status_immediately(monkeypatch):
     status_after_each_event = []
     original_emit = service._emit
 
-    def spying_emit(kind, message, **kwargs):
-        original_emit(kind, message, **kwargs)
+    def spying_emit(kind, code, message, **kwargs):
+        original_emit(kind, code, message, **kwargs)
         status_after_each_event.append((message, service.status))
 
     monkeypatch.setattr(service, "_emit", spying_emit)
@@ -921,3 +923,34 @@ def test_no_ceiling_means_wait_indefinitely_while_running():
 
 def test_no_ceiling_still_stops_once_not_running():
     assert stop_wait_should_continue(False, 10**9, None) is False
+
+
+# --- the snapshot a window draws from ---------------------------------------
+
+
+def test_the_snapshot_is_empty_while_no_scene_is_known():
+    snapshot = overlay_module.obs_snapshot(None, {"Gameplay": 2}, overlay_visible=True)
+
+    assert snapshot == overlay_module.ObsSnapshot()
+
+
+def test_the_snapshot_counts_only_scenes_that_carry_the_source():
+    snapshot = overlay_module.obs_snapshot(
+        "Gameplay", {"Gameplay": 2, "Camera": 5, "Chatting": None}, overlay_visible=False
+    )
+
+    assert snapshot == overlay_module.ObsSnapshot(
+        scene="Gameplay", covered=False, source_scene_count=2
+    )
+
+
+def test_the_map_counts_as_covered_only_on_a_scene_that_carries_the_source():
+    scene_items = {"Gameplay": 2, "Chatting": None}
+
+    assert overlay_module.obs_snapshot("Gameplay", scene_items, overlay_visible=True).covered
+    assert not overlay_module.obs_snapshot("Chatting", scene_items, overlay_visible=True).covered
+    assert not overlay_module.obs_snapshot("Gameplay", scene_items, overlay_visible=False).covered
+
+
+def test_a_new_service_has_an_empty_snapshot():
+    assert MapHideService().snapshot == overlay_module.ObsSnapshot()

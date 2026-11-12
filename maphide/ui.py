@@ -690,6 +690,8 @@ class MapHideApp:
             auto_connect=self.auto_connect_var.get(),
             auto_reconnect=self.auto_reconnect_var.get(),
             log_enabled=self.log_enabled_var.get(),
+            # This window has no theme picker; keep whichever theme is saved.
+            theme=self.controller.running_config.theme,
         )
 
     def save_form_config(self):

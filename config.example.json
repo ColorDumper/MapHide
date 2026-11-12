@@ -9,5 +9,6 @@
   "toggle_mode": false,
   "hide_hotkey": "H",
   "hide_delay_ms": 120,
-  "log_enabled": false
+  "log_enabled": false,
+  "theme": "field"
 }

@@ -13,6 +13,7 @@ from .hotkeys import (
     is_valid_show_hotkey,
 )
 from .paths import CONFIG_PATH, LEGACY_CONFIG_PATH
+from .themes import DEFAULT_THEME, theme_name
 
 DEFAULT_PORT = 4455
 DEFAULT_HOTKEY = "G"
@@ -53,6 +54,7 @@ class AppConfig:
     hide_hotkey: str = DEFAULT_HIDE_HOTKEY
     hide_delay_ms: int = DEFAULT_HIDE_DELAY_MS
     log_enabled: bool = False
+    theme: str = DEFAULT_THEME
 
     @classmethod
     def from_dict(cls, data):
@@ -89,6 +91,7 @@ class AppConfig:
                 MAX_HIDE_DELAY_MS,
             ),
             log_enabled=_flag(data, "log_enabled", False),
+            theme=theme_name(data.get("theme") or DEFAULT_THEME),
         )
 
     def to_dict(self):
@@ -104,6 +107,7 @@ class AppConfig:
             "hide_hotkey": self.hide_hotkey,
             "hide_delay_ms": self.hide_delay_ms,
             "log_enabled": self.log_enabled,
+            "theme": self.theme,
         }
 
     def to_loggable_dict(self):
@@ -179,6 +183,7 @@ def config_from_form(
     auto_connect,
     auto_reconnect,
     log_enabled,
+    theme=DEFAULT_THEME,
 ):
     """Build an AppConfig from what a settings form holds, as typed.
 
@@ -209,6 +214,7 @@ def config_from_form(
         hide_hotkey=hide_hotkey,
         hide_delay_ms=clamp_hide_delay(hide_delay_ms),
         log_enabled=bool(log_enabled),
+        theme=theme_name(theme),
     )
 
 

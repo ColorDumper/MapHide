@@ -111,8 +111,8 @@ def configure_logging(enabled):
 
     handler.namer = _rotated_name
 
-    # Roll once per app launch, not per worker start: a Save Settings restarts the
-    # worker mid-session and should keep writing to the same file.
+    # Roll once per app launch, not per worker start: saving settings can restart
+    # the worker mid-session, and it should keep writing to the same file.
     if not _rolled_this_process:
         try:
             if LOG_PATH.exists() and LOG_PATH.stat().st_size > 0:

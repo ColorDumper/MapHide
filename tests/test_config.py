@@ -17,6 +17,7 @@ from maphide.config import (
     form_ready,
     load_config,
     save_config,
+    worker_settings_differ,
 )
 
 BASE = {
@@ -234,3 +235,46 @@ def test_form_ready_replaces_what_a_form_cannot_show():
     ready = form_ready(cfg)
 
     assert (ready.hotkey, ready.hide_hotkey, ready.hide_delay_ms) == ("G", "H", MAX_HIDE_DELAY_MS)
+
+
+# --- the theme setting ---
+
+
+def test_the_theme_is_saved_and_read_back(tmp_path):
+    path = tmp_path / "config.json"
+    cfg = AppConfig.from_dict({**BASE, "theme": "legacy"})
+
+    save_config(cfg, path)
+
+    assert json.loads(path.read_text(encoding="utf-8"))["theme"] == "legacy"
+    assert load_config(path).theme == "legacy"
+
+
+@pytest.mark.parametrize("saved", [None, "", "neon", 7])
+def test_a_missing_or_unknown_theme_falls_back_to_the_default(saved):
+    data = dict(BASE) if saved is None else {**BASE, "theme": saved}
+
+    assert AppConfig.from_dict(data).theme == "field"
+
+
+def test_a_form_without_a_theme_picker_keeps_the_default_theme():
+    assert config_from_form(**FORM).theme == "field"
+    assert config_from_form(**FORM, theme="Legacy").theme == "legacy"
+
+
+@pytest.mark.parametrize(
+    ("change", "differs"),
+    [
+        ({"theme": "legacy"}, False),
+        ({"auto_connect": True}, False),
+        ({"hotkey": "M"}, True),
+        ({"host": "10.0.0.9"}, True),
+        ({"log_enabled": True}, True),
+        ({"auto_reconnect": False}, True),
+    ],
+)
+def test_only_settings_the_worker_uses_count_as_a_change_for_it(change, differs):
+    old = AppConfig.from_dict(BASE)
+    new = AppConfig.from_dict({**BASE, **change})
+
+    assert worker_settings_differ(old, new) is differs

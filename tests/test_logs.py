@@ -48,7 +48,7 @@ def test_enabling_then_disabling_detaches_the_handler(log_dir):
 def test_a_worker_restart_keeps_writing_to_the_same_file(log_dir):
     logs.configure_logging(True)
     logs.logger.info("first line")
-    logs.configure_logging(True)  # e.g. Save Settings restarts the worker
+    logs.configure_logging(True)  # e.g. saving settings restarts the worker
     logs.logger.info("second line")
     contents = (log_dir / "maphide-debug.log").read_text(encoding="utf-8")
     assert "first line" in contents and "second line" in contents

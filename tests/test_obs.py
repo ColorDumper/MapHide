@@ -1,12 +1,14 @@
 """Tests for the OBS transport wrapper: connect timeout split and error mapping."""
 
 import pytest
+from fake_obs import FakeObs
 from obsws_python.error import OBSSDKError, OBSSDKRequestError, OBSSDKTimeoutError
 
 from maphide import obs
 from maphide.obs import (
     CONNECT_TIMEOUT,
     REQUEST_TIMEOUT,
+    ConnectionCheck,
     ObsAuthError,
     ObsConnectionError,
     ObsUnreachableError,
@@ -123,3 +125,50 @@ def test_connect_failures_map_to_maphide_errors(monkeypatch, raised, expected):
     monkeypatch.setattr(obs, "ReqClient", boom)
     with pytest.raises(expected):
         connect_obs("10.0.0.2", 4455, "pw")
+
+
+# --- the one-off connection check ---------------------------------------------
+
+
+def checked_obs():
+    return FakeObs(
+        {"Gameplay": ["Webcam", "Overlay"], "Camera": ["Overlay"], "Chatting": ["Webcam"]}
+    )
+
+
+def test_a_connection_check_counts_the_scenes_carrying_the_source():
+    fake = checked_obs()
+
+    result = obs.check_connection("10.0.0.2", 4455, "", "Overlay", connect=lambda *_: fake)
+
+    assert result == ConnectionCheck(ok=True, source_scene_count=2)
+    assert fake.disconnected is True
+
+
+def test_a_connection_check_without_a_source_name_only_connects():
+    fake = checked_obs()
+
+    result = obs.check_connection("10.0.0.2", 4455, "", "", connect=lambda *_: fake)
+
+    assert result == ConnectionCheck(ok=True)
+    assert fake.calls == []
+    assert fake.disconnected is True
+
+
+def test_a_failed_connection_check_gives_the_reason():
+    def refuse(*_args):
+        raise ObsAuthError(obs.OBS_BAD_PASSWORD)
+
+    result = obs.check_connection("10.0.0.2", 4455, "wrong", "Overlay", connect=refuse)
+
+    assert result == ConnectionCheck(ok=False, message=obs.OBS_BAD_PASSWORD)
+
+
+def test_a_check_that_fails_after_connecting_still_disconnects():
+    fake = checked_obs()
+    fake.rule("GetSceneList", raises=OBSSDKTimeoutError("timed out"))
+
+    result = obs.check_connection("10.0.0.2", 4455, "", "Overlay", connect=lambda *_: fake)
+
+    assert result == ConnectionCheck(ok=False, message=obs.OBS_LINK_LOST)
+    assert fake.disconnected is True

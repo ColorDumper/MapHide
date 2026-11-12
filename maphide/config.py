@@ -13,6 +13,7 @@ from .hotkeys import (
     is_valid_show_hotkey,
 )
 from .paths import CONFIG_PATH, LEGACY_CONFIG_PATH
+from .themes import DEFAULT_THEME, theme_name
 
 DEFAULT_PORT = 4455
 DEFAULT_HOTKEY = "G"
@@ -22,6 +23,9 @@ MIN_HIDE_DELAY_MS = 0
 MAX_HIDE_DELAY_MS = 400
 MIN_PORT = 1
 MAX_PORT = 65535
+# Settings only the window uses. Changing these never needs the worker
+# restarted, so saving them leaves the OBS connection and the overlay alone.
+WINDOW_ONLY_FIELDS = frozenset({"auto_connect", "theme"})
 
 
 def clamp(value, low, high):
@@ -53,6 +57,7 @@ class AppConfig:
     hide_hotkey: str = DEFAULT_HIDE_HOTKEY
     hide_delay_ms: int = DEFAULT_HIDE_DELAY_MS
     log_enabled: bool = False
+    theme: str = DEFAULT_THEME
 
     @classmethod
     def from_dict(cls, data):
@@ -89,6 +94,7 @@ class AppConfig:
                 MAX_HIDE_DELAY_MS,
             ),
             log_enabled=_flag(data, "log_enabled", False),
+            theme=theme_name(data.get("theme") or DEFAULT_THEME),
         )
 
     def to_dict(self):
@@ -104,6 +110,7 @@ class AppConfig:
             "hide_hotkey": self.hide_hotkey,
             "hide_delay_ms": self.hide_delay_ms,
             "log_enabled": self.log_enabled,
+            "theme": self.theme,
         }
 
     def to_loggable_dict(self):
@@ -123,6 +130,15 @@ class AppConfig:
 
 def default_config():
     return AppConfig(host="", port=DEFAULT_PORT, password="", scene_item_name="")
+
+
+def worker_settings_differ(old, new):
+    """Whether going from `old` to `new` changes anything the worker uses -
+    and so whether a running worker needs restarting to pick it up."""
+    old_values, new_values = old.to_dict(), new.to_dict()
+    return any(
+        old_values[key] != new_values[key] for key in old_values if key not in WINDOW_ONLY_FIELDS
+    )
 
 
 def clamp_hide_delay(value):
@@ -148,6 +164,24 @@ def form_ready(cfg):
     )
 
 
+def connection_from_form(host, port):
+    """The OBS host and port from a settings form, as typed: (host, port).
+
+    Raises ValueError with a message fit to show the user when either is
+    missing or the port isn't a number.
+    """
+    host = str(host).strip()
+    port_text = str(port).strip()
+    if not host:
+        raise ValueError("OBS Host is required.")
+    if not port_text:
+        raise ValueError("OBS Port is required.")
+    try:
+        return host, int(port_text)
+    except ValueError as exc:
+        raise ValueError("OBS Port must be a number.") from exc
+
+
 def config_from_form(
     *,
     host,
@@ -161,33 +195,24 @@ def config_from_form(
     auto_connect,
     auto_reconnect,
     log_enabled,
+    theme=DEFAULT_THEME,
 ):
     """Build an AppConfig from what a settings form holds, as typed.
 
     Raises ValueError with a message fit to show the user when something
     required is missing or a key or number can't be used.
     """
-    host = str(host).strip()
-    port_text = str(port).strip()
+    host, port_number = connection_from_form(host, port)
     scene_item_name = str(scene_item_name).strip()
     hotkey = str(hotkey).strip().upper()
     hide_hotkey = str(hide_hotkey).strip().upper()
 
-    if not host:
-        raise ValueError("OBS Host is required.")
-    if not port_text:
-        raise ValueError("OBS Port is required.")
     if not scene_item_name:
         raise ValueError("Overlay Source is required.")
     if not is_valid_show_hotkey(hotkey):
         raise ValueError(SHOW_KEY_HELP)
     if toggle_mode and not is_valid_hide_hotkey(hide_hotkey):
         raise ValueError(HIDE_KEY_HELP)
-
-    try:
-        port_number = int(port_text)
-    except ValueError as exc:
-        raise ValueError("OBS Port must be a number.") from exc
 
     return AppConfig(
         host=host,
@@ -201,6 +226,7 @@ def config_from_form(
         hide_hotkey=hide_hotkey,
         hide_delay_ms=clamp_hide_delay(hide_delay_ms),
         log_enabled=bool(log_enabled),
+        theme=theme_name(theme),
     )
 
 

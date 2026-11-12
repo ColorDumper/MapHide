@@ -33,8 +33,11 @@ MapHide is usually **not** meant to run on the streaming PC in a dual-PC setup. 
 - Configurable keybinds
 - Auto-connect on startup option
 - Hide-to-tray behavior with tray menu
-- Dark mode UI
-- Sensitive OBS fields hidden by default
+- A map preview that shows whether your map is covered, the live OBS scene, and a log of what MapHide is doing
+- Test Link button that checks your OBS details and counts the scenes carrying your overlay source
+- Test button to show and hide the overlay without switching to your game
+- Two dark themes, Field and Legacy
+- Sensitive OBS fields hidden by default, each with its own show button
 - Reset defaults button with double-click confirmation
 - Settings saved to the user's AppData folder
 
@@ -131,27 +134,28 @@ You usually only need this if both PCs are on the same network, the password is 
 On the **gaming PC**:
 
 1. Download and run MapHide.
-2. Click `Settings >`.
+2. Click `SETTINGS`.
 3. Enter the streaming PC OBS details:
    - **Host**: the streaming PC local IP address
    - **Port**: the OBS WebSocket port, usually `4455`
    - **Password**: the OBS WebSocket password
-   - **Source Name**: the exact OBS source name from the streaming PC
-4. Choose your keybind mode:
-   - Use **hold mode** if your game map is open only while holding a key.
-   - Use **toggle mode** if your game map opens and closes with key presses.
-5. Adjust the hide delay if needed.
-6. Click `Save Settings`.
-7. Click `Start`.
+   - **OBS Source Name**: the exact OBS source name from the streaming PC
+4. Click `TEST LINK`. MapHide connects to OBS once and tells you how many scenes carry your source.
+5. Choose your keybind mode:
+   - Use **Hold** if your game map is open only while holding a key.
+   - Use **Toggle** if your game map opens and closes with key presses.
+6. Adjust the hide delay if needed.
+7. Click `SAVE`.
+8. Close the settings and click `START`.
 
 ### 6. Test The Setup
 
-After clicking `Start`:
+After clicking `START`:
 
-1. Open the game on the gaming PC.
-2. Open OBS on the streaming PC.
-3. Switch between OBS scenes that contain the same overlay source name.
-4. Press your selected map keybind.
+1. Open OBS on the streaming PC.
+2. Hold the `HOLD G TO TEST` button in MapHide (it says `PRESS` in toggle mode, and shows your own key). The overlay should appear in OBS, and the map preview in MapHide shows `COVERED`.
+3. Switch between OBS scenes that contain the same overlay source name, and try again.
+4. Open the game on the gaming PC and press your map key.
 5. Confirm the overlay appears and hides correctly in OBS.
 
 If the map flashes for a split second when closing, raise the hide delay slightly.
@@ -170,19 +174,19 @@ Example:
 C:\Users\YourName\AppData\Roaming\MapHide\config.json
 ```
 
-You never need to edit this by hand — MapHide writes it when you click `Save Settings`. If you want to start over, use `Reset Defaults` in the settings panel.
+You never need to edit this by hand — MapHide writes it when you click `SAVE`. If you want to start over, click `RESET` in the settings, then click it again to confirm.
 
 This file is plain text, and that includes your OBS WebSocket password — any program running as your Windows user can read it (OBS stores its own copy the same way). The MapHide-to-OBS connection also crosses your local network unencrypted. For both reasons, use a WebSocket password that you do not reuse anywhere else.
 
 ## Debug Log
 
-If MapHide is misbehaving and you want to report it, tick **Write a debug log to the config folder** in the settings panel and reproduce the problem. MapHide then writes what it is doing — connecting, scene changes, show and hide actions, and errors — to:
+If MapHide is misbehaving and you want to report it, turn on **Debug log** under Behavior in the settings, click `SAVE`, and reproduce the problem. MapHide then writes what it is doing — connecting, scene changes, show and hide actions, and errors — to:
 
 ```text
 %AppData%\MapHide\maphide-debug.log
 ```
 
-The log never contains your OBS password. It is off by default, starts fresh each time you open MapHide (the previous two runs are kept next to it as `maphide-debug.1.log` and `maphide-debug.2.log`), and stays small. Untick the box to stop logging.
+The log never contains your OBS password. It is off by default, starts fresh each time you open MapHide (the previous two runs are kept next to it as `maphide-debug.1.log` and `maphide-debug.2.log`), and stays small. Turn the switch off again to stop logging.
 
 ## Notes
 
@@ -230,11 +234,11 @@ Check that:
 
 ### The overlay disappears too fast
 
-Increase the hide delay slider slightly, then click `Save Settings`.
+Increase the hide delay slider slightly, then click `SAVE`.
 
 ### The overlay stays on screen too long
 
-Lower the hide delay slider slightly, then click `Save Settings`.
+Lower the hide delay slider slightly, then click `SAVE`.
 
 ### The app closes when I click the X
 

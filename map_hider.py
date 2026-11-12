@@ -10,7 +10,8 @@ The application itself lives in the maphide package:
     state.py             deciding what the overlay should be (pure, no I/O)
     overlay.py           the worker: polls the keys, runs the decision, drives OBS
     obs.py               talking to OBS over the WebSocket
-    ui.py                the settings window and tray icon
+    qt/                  the window (Qt Quick) and tray icon
+    controller.py        what the window asks of MapHide, apart from drawing it
     paths.py             where MapHide's files live
     logs.py              the opt-in debug log
     single_instance.py   the guard against two copies running at once
@@ -102,18 +103,18 @@ def run_headless():
 
 
 def run_selftest():
-    """Import every module and bundled package the app needs, then exit.
+    """Import everything the app needs and build its window without showing
+    it. Returns the exit code: 0 when all is well.
 
-    The build workflow runs this against the frozen executable so a missing
-    PyInstaller hidden import fails CI instead of reaching a user. A windowed
-    build has no console, so a clean exit (code 0) is the only pass signal.
+    The build workflow runs this against the frozen executable, so a missing
+    import, or a piece of Qt left out of the bundle, fails CI instead of
+    reaching a user. A windowed build has no console, so the exit code is
+    the only signal.
     """
-    import tkinter  # noqa: F401
+    from maphide import obs, overlay, state  # noqa: F401
+    from maphide.qt.app import selftest
 
-    import pystray  # noqa: F401
-    from PIL import Image, ImageDraw, ImageTk  # noqa: F401
-
-    from maphide import obs, overlay, state, ui  # noqa: F401
+    return selftest()
 
 
 def report_already_running(headless, notice_name=ALREADY_RUNNING_NOTICE_MUTEX):
@@ -130,15 +131,14 @@ def report_already_running(headless, notice_name=ALREADY_RUNNING_NOTICE_MUTEX):
         if existing:
             _set_foreground_window(existing)
         return
-    # A plain Win32 message box, not Tk: this can fire before any window
-    # exists, and a launch that's about to exit has no reason to spin one up.
+    # A plain Win32 message box, not Qt: this can fire before any window
+    # exists, and a launch that's about to exit has no reason to load Qt.
     _show_message_box(0, ALREADY_RUNNING_MESSAGE, NOTICE_TITLE, MB_ICONWARNING)
 
 
 def main():
     if "--selftest" in sys.argv:
-        run_selftest()
-        return
+        sys.exit(run_selftest())
 
     headless = "--headless" in sys.argv
 
@@ -149,10 +149,10 @@ def main():
     if headless:
         run_headless()
     else:
-        # Imported here so headless mode never needs Tk to be present.
-        from maphide.ui import run_gui
+        # Imported here so headless mode never loads Qt.
+        from maphide.qt.app import main as run_gui
 
-        run_gui()
+        sys.exit(run_gui())
 
 
 if __name__ == "__main__":

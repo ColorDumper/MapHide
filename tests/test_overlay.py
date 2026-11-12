@@ -183,16 +183,30 @@ def _scene_call(scene_name, scene_item_id, enabled):
 # --- MapHideService._emit -----------------------------------------------------
 
 
-def test_emit_includes_the_event_kind():
+def test_emit_includes_the_event_kind_and_code():
     # map_hider.py's run_headless() branches on event["kind"] to know when
     # an error or a stop means the run is truly over, not just mid-retry - a
-    # dict missing that key crashes the moment the first event arrives.
+    # dict missing that key crashes the moment the first event arrives. A
+    # window reads event["code"] to pick its own wording for the event.
     service = MapHideService()
 
-    service._emit("status", "Connected to OBS.")
+    service._emit("status", overlay_module.EVENT_CONNECTED, "Connected to OBS.")
 
     event = service.events.get_nowait()
     assert event["kind"] == "status"
+    assert event["code"] == overlay_module.EVENT_CONNECTED
+
+
+def test_emit_carries_the_scene_an_event_is_about():
+    service = MapHideService()
+
+    service._emit("status", overlay_module.EVENT_SCENE, "Switched to scene: Gameplay.")
+    service._emit(
+        "status", overlay_module.EVENT_SCENE, "Switched to scene: Camera.", subject="Camera"
+    )
+
+    assert service.events.get_nowait()["subject"] is None
+    assert service.events.get_nowait()["subject"] == "Camera"
 
 
 def test_a_new_service_reads_as_idle():
@@ -256,8 +270,8 @@ def test_starting_again_clears_a_previous_stop(monkeypatch):
 
 
 def test_stopped_is_queued_before_running_flips_false(monkeypatch):
-    # ui.py's _finish_service_restart polls is_running to know when it is
-    # safe to start the replacement worker after a Save Settings restart. If
+    # The controller polls is_running to know when it is safe to start the
+    # replacement worker after saving settings restarts it. If
     # "stopped" were queued *after* is_running flips False, a poll landing
     # in that gap could start the new worker - and let it enqueue its own
     # events - before the old "stopped" event even reaches the queue,
@@ -268,10 +282,10 @@ def test_stopped_is_queued_before_running_flips_false(monkeypatch):
     running_when_stopped_was_emitted = []
     original_emit = service._emit
 
-    def spying_emit(kind, message, **kwargs):
+    def spying_emit(kind, code, message, **kwargs):
         if kind == "stopped":
             running_when_stopped_was_emitted.append(service.is_running)
-        original_emit(kind, message, **kwargs)
+        original_emit(kind, code, message, **kwargs)
 
     monkeypatch.setattr(service, "_emit", spying_emit)
 
@@ -395,8 +409,8 @@ def test_a_mid_session_drop_updates_the_status_immediately(monkeypatch):
     status_after_each_event = []
     original_emit = service._emit
 
-    def spying_emit(kind, message, **kwargs):
-        original_emit(kind, message, **kwargs)
+    def spying_emit(kind, code, message, **kwargs):
+        original_emit(kind, code, message, **kwargs)
         status_after_each_event.append((message, service.status))
 
     monkeypatch.setattr(service, "_emit", spying_emit)
@@ -878,7 +892,7 @@ def test_a_press_while_the_active_scenes_item_id_is_unknown_does_not_block_the_l
 
 # --- stop_wait_should_continue -------------------------------------------------
 #
-# The cutoff both the GUI exit path (ui.py) and headless Ctrl+C (map_hider.py)
+# The cutoff both the window's exit path (controller.py) and headless Ctrl+C (map_hider.py)
 # use to decide when it's safe to stop waiting on a MapHideService to
 # actually finish stopping. Pure on purpose: a single fixed wait could give
 # up on a slow, multi-scene shutdown cleanup before it finished, so real
@@ -921,3 +935,76 @@ def test_no_ceiling_means_wait_indefinitely_while_running():
 
 def test_no_ceiling_still_stops_once_not_running():
     assert stop_wait_should_continue(False, 10**9, None) is False
+
+
+# --- the snapshot a window draws from ---------------------------------------
+
+
+def test_the_snapshot_is_empty_while_no_scene_is_known():
+    snapshot = overlay_module.obs_snapshot(None, {"Gameplay": 2}, overlay_visible=True)
+
+    assert snapshot == overlay_module.ObsSnapshot()
+
+
+def test_the_snapshot_counts_only_scenes_that_carry_the_source():
+    snapshot = overlay_module.obs_snapshot(
+        "Gameplay", {"Gameplay": 2, "Camera": 5, "Chatting": None}, overlay_visible=False
+    )
+
+    assert snapshot == overlay_module.ObsSnapshot(
+        scene="Gameplay", covered=False, source_scene_count=2
+    )
+
+
+def test_the_map_counts_as_covered_only_on_a_scene_that_carries_the_source():
+    scene_items = {"Gameplay": 2, "Chatting": None}
+
+    assert overlay_module.obs_snapshot("Gameplay", scene_items, overlay_visible=True).covered
+    assert not overlay_module.obs_snapshot("Chatting", scene_items, overlay_visible=True).covered
+    assert not overlay_module.obs_snapshot("Gameplay", scene_items, overlay_visible=False).covered
+
+
+def test_a_new_service_has_an_empty_snapshot():
+    assert MapHideService().snapshot == overlay_module.ObsSnapshot()
+
+
+# --- the window's test button -------------------------------------------------
+
+
+def test_the_test_button_stands_for_the_show_key_in_hold_mode():
+    cfg = AppConfig(host="h", port=1, password="", scene_item_name="s")
+
+    assert overlay_module.manual_input_target(cfg, False, desired_visible=True) == SHOW
+
+
+def test_in_toggle_mode_the_test_button_stands_for_whichever_key_changes_things():
+    cfg = AppConfig(host="h", port=1, password="", scene_item_name="s", toggle_mode=True)
+
+    assert overlay_module.manual_input_target(cfg, False, desired_visible=False) == SHOW
+    assert overlay_module.manual_input_target(cfg, False, desired_visible=True) == HIDE
+
+
+def test_with_one_key_for_both_the_test_button_is_always_that_key():
+    cfg = AppConfig(host="h", port=1, password="", scene_item_name="s", toggle_mode=True)
+
+    assert overlay_module.manual_input_target(cfg, True, desired_visible=True) == SHOW
+
+
+def test_a_test_press_is_remembered_until_the_worker_reads_it():
+    service = MapHideService()
+
+    service.set_manual_input(True)
+    service.set_manual_input(False)
+
+    assert service._take_manual_input() == (False, True)
+    assert service._take_manual_input() == (False, False)
+
+
+def test_holding_the_test_button_is_one_press_not_many():
+    service = MapHideService()
+
+    service.set_manual_input(True)
+    service.set_manual_input(True)
+
+    assert service._take_manual_input() == (True, True)
+    assert service._take_manual_input() == (True, False)

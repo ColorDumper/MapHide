@@ -16,7 +16,19 @@ from obsws_python.error import OBSSDKTimeoutError
 import maphide.overlay as overlay_module
 from maphide import logs
 from maphide.obs import OBS_OVERLAY_MAY_REMAIN, ObsAuthError, ObsUnreachableError
-from maphide.overlay import CONNECTED, CONNECTING, RECONNECTING, STOPPED
+from maphide.overlay import (
+    CONNECTED,
+    CONNECTING,
+    EVENT_CONNECTED,
+    EVENT_CONNECTING,
+    EVENT_OVERLAY_SHOWN,
+    EVENT_SCENE,
+    EVENT_SCENE_WITHOUT_SOURCE,
+    EVENT_STOPPED,
+    RECONNECTING,
+    STOPPED,
+    ObsSnapshot,
+)
 
 
 class _Lines(logging.Handler):
@@ -559,3 +571,170 @@ def test_a_failure_setting_up_the_debug_log_does_not_leave_the_worker_stuck(monk
     assert session.service.is_running is False
     assert any(e["kind"] == "stopped" for e in session.events)
     assert any("debug log" in e["message"] for e in session.events)
+
+
+# --- the snapshot a window draws from ---------------------------------------
+
+
+def test_the_snapshot_follows_the_live_scene_and_counts_the_source(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+    expected_first = ObsSnapshot(scene="Gameplay", covered=False, source_scene_count=2)
+
+    def scenario(s):
+        yield s.until(lambda: s.service.snapshot == expected_first, "the first snapshot")
+        obs.switch_to("Chatting")
+        yield s.until(lambda: s.service.snapshot.scene == "Chatting", "the scene switch")
+        assert s.service.snapshot.source_scene_count == 2
+
+    session.run(scenario)
+
+    assert session.service.snapshot == ObsSnapshot()
+
+
+def test_the_snapshot_is_covered_only_while_the_live_scene_shows_the_overlay(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        assert s.service.snapshot.covered is False
+        s.keyboard.hold("G")
+        yield s.until(lambda: s.service.snapshot.covered, "the map to count as covered")
+        assert obs.is_enabled("Gameplay")
+        obs.switch_to("Chatting")
+        yield s.until(lambda: s.service.snapshot.scene == "Chatting", "the scene switch")
+        assert s.service.snapshot.covered is False, "Chatting has no overlay to cover the map"
+        obs.switch_to("Gameplay")
+        yield s.until(lambda: s.service.snapshot.covered, "covered again on Gameplay")
+        s.keyboard.release("G")
+        yield s.until(lambda: not s.service.snapshot.covered, "the cover to drop")
+
+    session.run(scenario)
+
+
+def test_the_snapshot_clears_while_the_link_is_down_and_returns_after(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: s.service.snapshot.covered, "the map to count as covered")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.until(lambda: s.service.snapshot == ObsSnapshot(), "the snapshot to clear")
+        yield s.until(lambda: obs.connections == 2, "a second connection")
+        yield s.until(
+            lambda: s.service.snapshot.scene == "Gameplay" and s.service.snapshot.covered,
+            "the snapshot to come back",
+        )
+
+    session.run(scenario)
+
+
+def test_events_carry_a_code_for_what_happened(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: s.saw("Overlay shown."), "the overlay to be shown")
+
+    session.run(scenario)
+
+    codes = [event["code"] for event in session.events]
+    assert codes[:3] == [EVENT_CONNECTING, EVENT_CONNECTED, EVENT_SCENE]
+    assert EVENT_OVERLAY_SHOWN in codes
+    assert codes[-1] == EVENT_STOPPED
+
+
+def test_scene_events_name_their_scene_and_flag_one_without_the_source(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        obs.switch_to("Chatting")
+        yield s.until(lambda: s.saw("Chatting"), "the switch to be noticed")
+
+    session.run(scenario)
+
+    scenes = [
+        (event["code"], event["subject"])
+        for event in session.events
+        if event["code"] in (EVENT_SCENE, EVENT_SCENE_WITHOUT_SOURCE)
+    ]
+    assert scenes == [(EVENT_SCENE, "Gameplay"), (EVENT_SCENE_WITHOUT_SOURCE, "Chatting")]
+
+
+# --- the window's test button -------------------------------------------------
+
+
+def test_the_test_button_covers_while_held_in_hold_mode(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.service.set_manual_input(True)
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        yield s.ticks(10)
+        assert obs.is_enabled("Gameplay"), "holding the button keeps it shown"
+        s.service.set_manual_input(False)
+        yield s.until(lambda: obs.is_enabled("Gameplay") is False, "the overlay to be hidden")
+
+    session.run(scenario)
+
+    assert EVENT_OVERLAY_SHOWN in [event["code"] for event in session.events]
+
+
+@pytest.mark.parametrize("hide_hotkey", ["H", "G"], ids=["separate keys", "one key"])
+def test_the_test_button_covers_then_uncovers_in_toggle_mode(monkeypatch, hide_hotkey):
+    obs = standard_obs()
+    cfg = make_config(toggle_mode=True, hide_hotkey=hide_hotkey)
+    session = Session(monkeypatch, cfg, obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.service.set_manual_input(True)
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the first press to cover")
+        # Longer than the debounce, so a flip back would have landed by now.
+        yield s.pause(0.2)
+        assert obs.is_enabled("Gameplay"), "holding the button must not flip it back"
+        s.service.set_manual_input(False)
+        yield s.pause(0.1)
+        s.service.set_manual_input(True)
+        yield s.until(lambda: obs.is_enabled("Gameplay") is False, "the second press to uncover")
+        yield s.pause(0.2)
+        assert obs.is_enabled("Gameplay") is False, "holding the button must not flip it back"
+        s.service.set_manual_input(False)
+
+    session.run(scenario)
+
+
+def test_a_click_shorter_than_one_poll_still_toggles(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(toggle_mode=True), obs)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.service.set_manual_input(True)
+        s.service.set_manual_input(False)
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+
+    session.run(scenario)
+
+
+def test_a_test_press_from_before_connecting_does_nothing(monkeypatch):
+    obs = standard_obs()
+    session = Session(monkeypatch, make_config(toggle_mode=True), obs)
+    session.service.set_manual_input(True)
+    session.service.set_manual_input(False)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        yield s.ticks(20)
+        assert obs.is_enabled("Gameplay") is False
+
+    session.run(scenario)

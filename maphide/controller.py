@@ -10,33 +10,49 @@ the window passes in, so they always run on the window's own thread.
 """
 
 import queue
+import threading
+from dataclasses import dataclass
 
-from .config import default_config, form_ready, load_config, save_config
-from .overlay import MapHideService, human_ts, stop_wait_should_continue
+from .config import (
+    connection_from_form,
+    default_config,
+    form_ready,
+    load_config,
+    save_config,
+    worker_settings_differ,
+)
+from .obs import ConnectionCheck, check_connection
+from .overlay import CONNECTED, MapHideService, human_ts, stop_wait_should_continue
 
 HISTORY_LINE_COUNT = 10
 RESTART_POLL_INTERVAL_MS = 50
+CHECK_POLL_INTERVAL_MS = 50
+CHECK_FAILED = "Could not check the connection."
 # A backstop, not a normal-case budget: the worker's own shutdown cleanup can
 # legitimately take a moment (one OBS request per scene carrying the overlay
 # source), so exit polls for it to actually finish rather than guessing at a
 # fixed wait - see stop_wait_should_continue. This only ever matters if that
 # cleanup somehow runs far longer than any realistic scene count justifies.
 EXIT_WAIT_CEILING_MS = 15_000
-APPLYING_SETTINGS = "Applying settings..."
+# History codes for the controller's own entries, alongside the worker's
+# EVENT_* codes.
+HISTORY_SETTINGS_SAVED = "settings_saved"
+HISTORY_DEFAULTS_RESTORED = "defaults_restored"
+# A message the window itself puts in the history, such as a setting it
+# can't use.
+HISTORY_NOTICE = "notice"
 
 
-def status_line(status, restart_pending):
-    """What the status line says: the service's own wording, except while a
-    settings change is restarting it - the stop and start in between are not
-    worth showing."""
-    return APPLYING_SETTINGS if restart_pending else status.message
+@dataclass(frozen=True)
+class HistoryEntry:
+    """One line of the in-app history. `code` says what it is about (an
+    EVENT_* code or one of the HISTORY_* codes above), so a window can word
+    it its own way; `subject` is the scene it names, if any."""
 
-
-def help_text(cfg):
-    """One line on how to use the keys the running settings name."""
-    if cfg.toggle_mode:
-        return f"Press {cfg.hotkey} to show the overlay. Press {cfg.hide_hotkey} to hide it."
-    return f"Hold {cfg.hotkey} to show the overlay. Release {cfg.hotkey} to hide it."
+    timestamp: str
+    message: str
+    code: str | None = None
+    subject: str | None = None
 
 
 def _ignore(*_args):
@@ -48,32 +64,40 @@ class AppController:
 
     `schedule(milliseconds, callback)` runs `callback` later on the window's
     thread. `notify(text)` shows the user a one-off message. `on_change()`
-    asks the window to redraw the status line, buttons and history.
+    asks the window to redraw what it shows.
     """
 
     def __init__(
-        self, schedule, service=None, save=save_config, notify=_ignore, on_change=_ignore
+        self,
+        schedule,
+        service=None,
+        save=save_config,
+        notify=_ignore,
+        on_change=_ignore,
+        check=check_connection,
     ):
         self._schedule = schedule
         self.service = service if service is not None else MapHideService()
         self._save = save
+        self._check = check
+        self._check_thread = None
         self._notify = notify
         self._on_change = on_change
         self.running_config = default_config()
+        # The settings the running worker was started with, or None.
+        self._worker_config = None
         self.restart_pending = False
         self._pending_restart_config = None
         self.exit_requested = False
-        self.history_lines = []
+        self.history = []
 
     # What the window draws.
 
     @property
-    def status_text(self):
-        return status_line(self.service.status, self.restart_pending)
-
-    @property
-    def help_text(self):
-        return help_text(self.running_config)
+    def snapshot(self):
+        """The live scene, whether the map is covered, and how many scenes
+        carry the source - see overlay.ObsSnapshot."""
+        return self.service.snapshot
 
     @property
     def can_start(self):
@@ -85,6 +109,57 @@ class AppController:
     @property
     def can_stop(self):
         return self.service.is_running and not self.restart_pending
+
+    @property
+    def can_test(self):
+        """Whether the test button can do anything: only while connected."""
+        return (
+            self.service.is_running
+            and not self.restart_pending
+            and self.service.status.state == CONNECTED
+        )
+
+    @property
+    def checking_connection(self):
+        return self._check_thread is not None
+
+    # Testing.
+
+    def set_manual_input(self, down):
+        """Press (True) or release (False) the test button. It drives the
+        overlay through the same decision as the hotkey."""
+        self.service.set_manual_input(down)
+
+    def check_connection(self, host, port, password, source_name, on_done):
+        """Try connecting to OBS once with these form values, off the
+        window's thread, then call `on_done(ConnectionCheck)` on the window's
+        thread. Raises ValueError (with a message to show) if the host or
+        port can't be used. Returns False, and does nothing, while a check is
+        already running."""
+        if self._check_thread is not None:
+            return False
+        host, port_number = connection_from_form(host, port)
+        source_name = str(source_name).strip()
+        result = []
+
+        def run():
+            try:
+                result.append(self._check(host, port_number, password, source_name))
+            except Exception:
+                # A bug in the check must still end the wait in the window.
+                result.append(ConnectionCheck(ok=False, message=CHECK_FAILED))
+
+        self._check_thread = threading.Thread(target=run, name="ConnectionCheck", daemon=True)
+        self._check_thread.start()
+        self._schedule(CHECK_POLL_INTERVAL_MS, lambda: self._await_check(result, on_done))
+        return True
+
+    def _await_check(self, result, on_done):
+        if not result:
+            self._schedule(CHECK_POLL_INTERVAL_MS, lambda: self._await_check(result, on_done))
+            return
+        self._check_thread = None
+        on_done(result[0])
 
     # Settings.
 
@@ -104,23 +179,29 @@ class AppController:
         """Save `cfg` and put it into effect. Raises OSError if it can't be
         written, in which case nothing changes."""
         self._save(cfg)
-        self._apply(cfg, "Config saved.")
+        self._apply(cfg, "Config saved.", HISTORY_SETTINGS_SAVED)
 
     def restore_defaults(self):
         """Save and apply the default settings, and return them."""
         cfg = default_config()
         self._save(cfg)
-        self._apply(cfg, "Defaults restored.")
+        self._apply(cfg, "Defaults restored.", HISTORY_DEFAULTS_RESTORED)
         return cfg
 
-    def _apply(self, cfg, done_message):
+    def _apply(self, cfg, done_message, code):
         self.running_config = cfg
         # The history, not the live status line: a save confirmation isn't
         # part of the OBS connection's own story.
-        self.add_history(human_ts(), done_message)
-        if self.service.is_running:
+        self.add_history(human_ts(), done_message, code)
+        # Only restart for a change the worker would actually see: a restart
+        # briefly drops the OBS link and hides the overlay. A restart already
+        # under way always takes the newest settings.
+        if self.restart_pending or (self.service.is_running and self._worker_needs(cfg)):
             self._restart_service_with(cfg)
         self._on_change()
+
+    def _worker_needs(self, cfg):
+        return self._worker_config is None or worker_settings_differ(self._worker_config, cfg)
 
     # The worker.
 
@@ -130,6 +211,8 @@ class AppController:
         running."""
         self._save(cfg)
         self.service.start(cfg)
+        self._worker_config = cfg
+        self.running_config = cfg
         self._on_change()
 
     def stop(self):
@@ -159,6 +242,7 @@ class AppController:
             return
         try:
             self.service.start(cfg)
+            self._worker_config = cfg
         except RuntimeError as exc:
             self._notify(str(exc))
         self._on_change()
@@ -188,12 +272,14 @@ class AppController:
             except queue.Empty:
                 return changed
             if event["history"]:
-                self.add_history(event["timestamp"], event["message"])
+                self.add_history(
+                    event["timestamp"], event["message"], event.get("code"), event.get("subject")
+                )
                 changed = True
 
-    def add_history(self, timestamp, message):
-        self.history_lines.append(f"{timestamp}  {message}")
-        del self.history_lines[:-HISTORY_LINE_COUNT]
+    def add_history(self, timestamp, message, code=None, subject=None):
+        self.history.append(HistoryEntry(timestamp, message, code, subject))
+        del self.history[:-HISTORY_LINE_COUNT]
 
     # Shutting down.
 

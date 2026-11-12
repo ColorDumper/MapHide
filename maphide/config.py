@@ -23,6 +23,9 @@ MIN_HIDE_DELAY_MS = 0
 MAX_HIDE_DELAY_MS = 400
 MIN_PORT = 1
 MAX_PORT = 65535
+# Settings only the window uses. Changing these never needs the worker
+# restarted, so saving them leaves the OBS connection and the overlay alone.
+WINDOW_ONLY_FIELDS = frozenset({"auto_connect", "theme"})
 
 
 def clamp(value, low, high):
@@ -127,6 +130,15 @@ class AppConfig:
 
 def default_config():
     return AppConfig(host="", port=DEFAULT_PORT, password="", scene_item_name="")
+
+
+def worker_settings_differ(old, new):
+    """Whether going from `old` to `new` changes anything the worker uses -
+    and so whether a running worker needs restarting to pick it up."""
+    old_values, new_values = old.to_dict(), new.to_dict()
+    return any(
+        old_values[key] != new_values[key] for key in old_values if key not in WINDOW_ONLY_FIELDS
+    )
 
 
 def clamp_hide_delay(value):

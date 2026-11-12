@@ -18,6 +18,7 @@ from .config import (
     form_ready,
     load_config,
     save_config,
+    worker_settings_differ,
 )
 from .obs import ConnectionCheck, check_connection
 from .overlay import CONNECTED, MapHideService, human_ts, stop_wait_should_continue
@@ -78,6 +79,8 @@ class AppController:
         self._notify = notify
         self._on_change = on_change
         self.running_config = default_config()
+        # The settings the running worker was started with, or None.
+        self._worker_config = None
         self.restart_pending = False
         self._pending_restart_config = None
         self.exit_requested = False
@@ -193,9 +196,15 @@ class AppController:
         # The history, not the live status line: a save confirmation isn't
         # part of the OBS connection's own story.
         self.add_history(human_ts(), done_message)
-        if self.service.is_running:
+        # Only restart for a change the worker would actually see: a restart
+        # briefly drops the OBS link and hides the overlay. A restart already
+        # under way always takes the newest settings.
+        if self.restart_pending or (self.service.is_running and self._worker_needs(cfg)):
             self._restart_service_with(cfg)
         self._on_change()
+
+    def _worker_needs(self, cfg):
+        return self._worker_config is None or worker_settings_differ(self._worker_config, cfg)
 
     # The worker.
 
@@ -205,6 +214,7 @@ class AppController:
         running."""
         self._save(cfg)
         self.service.start(cfg)
+        self._worker_config = cfg
         self._on_change()
 
     def stop(self):
@@ -234,6 +244,7 @@ class AppController:
             return
         try:
             self.service.start(cfg)
+            self._worker_config = cfg
         except RuntimeError as exc:
             self._notify(str(exc))
         self._on_change()

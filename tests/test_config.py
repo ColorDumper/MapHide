@@ -17,6 +17,7 @@ from maphide.config import (
     form_ready,
     load_config,
     save_config,
+    worker_settings_differ,
 )
 
 BASE = {
@@ -259,3 +260,21 @@ def test_a_missing_or_unknown_theme_falls_back_to_the_default(saved):
 def test_a_form_without_a_theme_picker_keeps_the_default_theme():
     assert config_from_form(**FORM).theme == "field"
     assert config_from_form(**FORM, theme="Legacy").theme == "legacy"
+
+
+@pytest.mark.parametrize(
+    ("change", "differs"),
+    [
+        ({"theme": "legacy"}, False),
+        ({"auto_connect": True}, False),
+        ({"hotkey": "M"}, True),
+        ({"host": "10.0.0.9"}, True),
+        ({"log_enabled": True}, True),
+        ({"auto_reconnect": False}, True),
+    ],
+)
+def test_only_settings_the_worker_uses_count_as_a_change_for_it(change, differs):
+    old = AppConfig.from_dict(BASE)
+    new = AppConfig.from_dict({**BASE, **change})
+
+    assert worker_settings_differ(old, new) is differs

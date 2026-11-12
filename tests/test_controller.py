@@ -481,3 +481,46 @@ def test_a_connection_check_that_breaks_still_reports_back(h):
 
     assert results == [ConnectionCheck(ok=False, message=CHECK_FAILED)]
     assert controller.checking_connection is False
+
+
+# Saving without restarting the worker.
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"theme": "legacy"}, {"auto_connect": True}, {}],
+    ids=["theme", "connect on startup", "nothing"],
+)
+def test_saving_a_change_the_worker_does_not_use_leaves_it_running(h, change):
+    h.controller.start(make_config())
+
+    h.controller.save(make_config(**change))
+
+    assert h.controller.restart_pending is False
+    assert h.service.stop_requests == 0
+    assert h.controller.running_config == make_config(**change)
+    assert h.controller.history_lines[-1].endswith("Config saved.")
+
+
+def test_after_a_restart_saving_the_same_settings_again_does_not_restart(h):
+    h.controller.start(make_config())
+    h.controller.save(make_config(hotkey="M"))
+    h.service.finish_stopping()
+    h.schedule.run_next()
+    assert h.service.started_with[-1] == make_config(hotkey="M")
+
+    h.controller.save(make_config(hotkey="M", theme="legacy"))
+
+    assert h.controller.restart_pending is False
+    assert h.service.stop_requests == 1
+
+
+def test_a_window_only_change_during_a_restart_is_kept(h):
+    h.controller.start(make_config())
+    h.controller.save(make_config(hotkey="M"))
+    h.controller.save(make_config(hotkey="M", theme="legacy"))
+
+    h.service.finish_stopping()
+    h.schedule.run_next()
+
+    assert h.service.started_with[-1] == make_config(hotkey="M", theme="legacy")

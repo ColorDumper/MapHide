@@ -4,23 +4,28 @@ All notable changes to MapHide are documented here.
 
 ## Unreleased
 
-- A redesigned window. A map preview shows at a glance whether your map is
-  covered, alongside the live OBS scene and a short log of what MapHide is
-  doing. Settings slide in from the side, and two themes are available:
-  Field (the new look) and Legacy (the old colors).
-- New **Test Link** button in Settings: it checks your OBS details without
-  starting MapHide and tells you how many scenes carry your overlay source.
-- New test button on the main screen ("Hold G to test") shows and hides the
-  overlay exactly as your key would, so you can check your OBS setup without
+### What's new
+
+- **Redesigned window.** A map preview shows at a glance whether your map is
+  covered, next to the live OBS scene and a short log of what MapHide is
+  doing. Settings slide in from the side.
+- **Themes.** Choose Field, the new look, or Legacy, the previous colors.
+- **Test Link.** Checks your OBS details without starting MapHide, and tells
+  you how many scenes carry your overlay source.
+- **Test button.** **Hold G to test** on the main screen shows and hides the
+  overlay exactly as your key does, so you can check your OBS setup without
   switching to your game.
-- New app icon: a map with a red X, sharp at every size from the tray to the
-  taskbar.
-- Fixed MapHide lingering in the background for several seconds, without
+- **New app icon.** A map with a red X, sharp at every size from the tray to
+  the taskbar.
+
+### Fixes
+
+- Fixed MapHide staying open in the background for several seconds, without
   hiding the overlay in OBS, when it was closed right after saving settings
   while connected.
-- Turning "Connect on startup" on or off, changing the theme, or saving
-  settings without changing anything that affects the overlay, no longer
-  briefly drops the OBS connection and hides the overlay.
+- Fixed changing **Connect on startup** or the theme, or saving settings that
+  don't affect the overlay, briefly dropping the OBS connection and hiding
+  the overlay.
 
 ## v0.2.6 - 2026-10-27
 

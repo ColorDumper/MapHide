@@ -1,0 +1,13 @@
+# The packages MapHide needs to run. Edit this file, not requirements.txt.
+#
+# requirements.txt and requirements-dev.txt are generated from this file and
+# requirements-dev.in, pinning every package MapHide installs (including the
+# ones these pull in) with checksums. After editing either .in file, run:
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras requirements.in
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras requirements-dev.in
+obsws-python==1.8.1
+# Pulled in by obsws-python; MapHide names its error types directly.
+websocket-client==1.9.2
+# The window and tray icon. Essentials is the core of Qt without the
+# extra modules MapHide doesn't use.
+PySide6-Essentials==6.12.0

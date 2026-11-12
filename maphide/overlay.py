@@ -196,6 +196,19 @@ def scene_status(scene_name, is_first_detection=False):
     return f"{verb}: {scene_name}."
 
 
+def manual_input_target(cfg, same_key, desired_visible):
+    """Which key a press of the window's test button stands for: SHOW or HIDE.
+
+    In hold mode, and in toggle mode with one key for both, it is the show
+    key. In toggle mode with separate keys it is whichever key would change
+    things - the hide key while the overlay should be showing, the show key
+    otherwise - so one button covers and uncovers alike.
+    """
+    if cfg.toggle_mode and not same_key and desired_visible:
+        return HIDE
+    return SHOW
+
+
 def seed_key_edge_tracking(state, cfg, show_vk_codes, hide_vk_codes):
     """Reset show_key_was_down/hide_key_was_down from a real poll of the
     current key state, not a blind False - run on every (re)connect. A key
@@ -252,6 +265,8 @@ class MapHideService:
         self._running = False
         self._status = ServiceStatus(IDLE, "Idle")
         self._snapshot = ObsSnapshot()
+        self._manual_down = False
+        self._manual_pressed = False
         self._status_lock = threading.Lock()
 
     @property
@@ -274,6 +289,28 @@ class MapHideService:
         """The live scene, whether the map is covered, and how many scenes
         carry the source, as an ObsSnapshot. Always current, like status."""
         return self._snapshot
+
+    def set_manual_input(self, down):
+        """Press (True) or release (False) the window's test button. It goes
+        through exactly the same decision as the hotkey - debounce, hide
+        delay, hold or toggle - and only does anything while connected."""
+        with self._status_lock:
+            if down and not self._manual_down:
+                self._manual_pressed = True
+            self._manual_down = bool(down)
+
+    def _take_manual_input(self):
+        """The test button's state for one poll: whether it is down, and
+        whether it was pressed since the last poll even if already released."""
+        with self._status_lock:
+            taken = (self._manual_down, self._manual_pressed)
+            self._manual_pressed = False
+            return taken
+
+    def _release_manual_input(self):
+        with self._status_lock:
+            self._manual_down = False
+            self._manual_pressed = False
 
     def _publish(self, snapshot):
         with self._status_lock:
@@ -301,6 +338,7 @@ class MapHideService:
         self._running = True
         self._set_status(CONNECTING, "Starting...", force=True)
         self._publish(ObsSnapshot())
+        self._release_manual_input()
         self._thread.start()
 
     def stop(self):
@@ -386,6 +424,9 @@ class MapHideService:
         show_vk_codes = cfg.show_vk_codes()
         hide_vk_codes = cfg.hide_vk_codes()
         same_key = show_vk_codes == hide_vk_codes
+        # Which key the test button stands for, fixed for the length of one
+        # press so that holding it can never flip between the two.
+        manual_key = None
         client = None
         state = OverlayState()
         scene_items = {}
@@ -438,6 +479,8 @@ class MapHideService:
                         # armed before the drop must still land once reconnected,
                         # not evaporate because nothing changed key-wise since.
                         state = seed_key_edge_tracking(state, cfg, show_vk_codes, hide_vk_codes)
+                        self._release_manual_input()
+                        manual_key = None
                         failure_in_history = False
                         overlay_may_remain = False
                         had_successful_connection = True
@@ -567,6 +610,17 @@ class MapHideService:
                     hide_down, hide_pressed = (
                         poll_hotkey(hide_vk_codes) if cfg.toggle_mode else (False, False)
                     )
+                    manual_down, manual_pressed = self._take_manual_input()
+                    if (manual_down or manual_pressed) and manual_key is None:
+                        manual_key = manual_input_target(cfg, same_key, state.desired_visible)
+                    if manual_key == SHOW:
+                        show_down = show_down or manual_down
+                        show_pressed = show_pressed or manual_pressed
+                    elif manual_key == HIDE:
+                        hide_down = hide_down or manual_down
+                        hide_pressed = hide_pressed or manual_pressed
+                    if not manual_down:
+                        manual_key = None
                     state, action = decide(
                         cfg,
                         state,
@@ -663,6 +717,8 @@ class MapHideService:
                     # Nothing about OBS is known while the link is down.
                     self._publish(ObsSnapshot())
                     state = seed_key_edge_tracking(state, cfg, show_vk_codes, hide_vk_codes)
+                    self._release_manual_input()
+                    manual_key = None
                     if not cfg.auto_reconnect:
                         final_status_message = (
                             OBS_OVERLAY_MAY_REMAIN if overlay_may_remain else error_message

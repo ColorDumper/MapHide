@@ -12,7 +12,7 @@ the window passes in, so they always run on the window's own thread.
 import queue
 
 from .config import default_config, form_ready, load_config, save_config
-from .overlay import MapHideService, human_ts, stop_wait_should_continue
+from .overlay import CONNECTED, MapHideService, human_ts, stop_wait_should_continue
 
 HISTORY_LINE_COUNT = 10
 RESTART_POLL_INTERVAL_MS = 50
@@ -91,6 +91,22 @@ class AppController:
     @property
     def can_stop(self):
         return self.service.is_running and not self.restart_pending
+
+    @property
+    def can_test(self):
+        """Whether the test button can do anything: only while connected."""
+        return (
+            self.service.is_running
+            and not self.restart_pending
+            and self.service.status.state == CONNECTED
+        )
+
+    # Testing.
+
+    def set_manual_input(self, down):
+        """Press (True) or release (False) the test button. It drives the
+        overlay through the same decision as the hotkey."""
+        self.service.set_manual_input(down)
 
     # Settings.
 

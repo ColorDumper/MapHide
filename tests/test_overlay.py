@@ -954,3 +954,45 @@ def test_the_map_counts_as_covered_only_on_a_scene_that_carries_the_source():
 
 def test_a_new_service_has_an_empty_snapshot():
     assert MapHideService().snapshot == overlay_module.ObsSnapshot()
+
+
+# --- the window's test button -------------------------------------------------
+
+
+def test_the_test_button_stands_for_the_show_key_in_hold_mode():
+    cfg = AppConfig(host="h", port=1, password="", scene_item_name="s")
+
+    assert overlay_module.manual_input_target(cfg, False, desired_visible=True) == SHOW
+
+
+def test_in_toggle_mode_the_test_button_stands_for_whichever_key_changes_things():
+    cfg = AppConfig(host="h", port=1, password="", scene_item_name="s", toggle_mode=True)
+
+    assert overlay_module.manual_input_target(cfg, False, desired_visible=False) == SHOW
+    assert overlay_module.manual_input_target(cfg, False, desired_visible=True) == HIDE
+
+
+def test_with_one_key_for_both_the_test_button_is_always_that_key():
+    cfg = AppConfig(host="h", port=1, password="", scene_item_name="s", toggle_mode=True)
+
+    assert overlay_module.manual_input_target(cfg, True, desired_visible=True) == SHOW
+
+
+def test_a_test_press_is_remembered_until_the_worker_reads_it():
+    service = MapHideService()
+
+    service.set_manual_input(True)
+    service.set_manual_input(False)
+
+    assert service._take_manual_input() == (False, True)
+    assert service._take_manual_input() == (False, False)
+
+
+def test_holding_the_test_button_is_one_press_not_many():
+    service = MapHideService()
+
+    service.set_manual_input(True)
+    service.set_manual_input(True)
+
+    assert service._take_manual_input() == (True, True)
+    assert service._take_manual_input() == (True, False)

@@ -37,6 +37,7 @@ class FakeService:
         self.is_running = False
         self.status = ServiceStatus(STOPPED, "Idle")
         self.snapshot = ObsSnapshot()
+        self.manual_inputs = []
         self.started_with = []
         self.stop_requests = 0
 
@@ -50,6 +51,9 @@ class FakeService:
         self.stop_requests += 1
         if self.is_running:
             self.status = ServiceStatus(STOPPING, "Stopping...")
+
+    def set_manual_input(self, down):
+        self.manual_inputs.append(down)
 
     def finish_stopping(self):
         self.is_running = False
@@ -388,3 +392,25 @@ def test_the_snapshot_comes_straight_from_the_worker(h):
     assert h.controller.snapshot == ObsSnapshot(
         scene="Gameplay", covered=True, source_scene_count=3
     )
+
+
+# The test button and the connection check.
+
+
+def test_the_test_button_only_works_while_connected(h):
+    assert h.controller.can_test is False
+    h.controller.start(make_config())
+    assert h.controller.can_test is False, "started, but not connected yet"
+
+    h.service.status = ServiceStatus(CONNECTED, "Connected to OBS.")
+    assert h.controller.can_test is True
+
+    h.controller.save(make_config(hotkey="M"))
+    assert h.controller.can_test is False, "not while settings are being applied"
+
+
+def test_the_test_button_is_passed_to_the_worker(h):
+    h.controller.set_manual_input(True)
+    h.controller.set_manual_input(False)
+
+    assert h.service.manual_inputs == [True, False]

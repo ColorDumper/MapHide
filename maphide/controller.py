@@ -189,17 +189,28 @@ class AppController:
         self._apply(cfg, "Config saved.", HISTORY_SETTINGS_SAVED)
 
     def restore_defaults(self):
-        """Save and apply the default settings, and return them."""
+        """Save the default settings, and return them. A running worker is
+        stopped, not restarted: the defaults have no OBS address to connect
+        to."""
         cfg = default_config()
         self._write(cfg)
-        self._apply(cfg, "Defaults restored.", HISTORY_DEFAULTS_RESTORED)
+        self._record(cfg, "Defaults restored.", HISTORY_DEFAULTS_RESTORED)
+        if self.restart_pending:
+            # The restart under way finishes stopping, then starts nothing.
+            self._pending_restart_config = None
+        elif self.service.is_running:
+            self.service.stop()
+        self._on_change()
         return cfg
 
-    def _apply(self, cfg, done_message, code):
+    def _record(self, cfg, done_message, code):
         self.running_config = cfg
         # The history, not the live status line: a save confirmation isn't
         # part of the OBS connection's own story.
         self.add_history(human_ts(), done_message, code)
+
+    def _apply(self, cfg, done_message, code):
+        self._record(cfg, done_message, code)
         # Only restart for a change the worker would actually see: a restart
         # briefly drops the OBS link and hides the overlay. A restart already
         # under way always takes the newest settings.
@@ -253,6 +264,10 @@ class AppController:
         if self.exit_requested:
             # MapHide is closing: a new worker would outlive the exit's own
             # wait and be cut off without hiding the overlay.
+            return
+        if cfg is None:
+            # Restore defaults called the restart off.
+            self._on_change()
             return
         try:
             self.service.start(cfg)

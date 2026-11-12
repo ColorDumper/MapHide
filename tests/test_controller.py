@@ -319,6 +319,33 @@ def test_a_restart_waits_as_long_as_the_old_worker_needs(h):
     assert len(h.schedule.pending) == 1
 
 
+def test_restoring_defaults_while_running_stops_and_stays_stopped(h):
+    h.controller.start(make_config())
+
+    h.controller.restore_defaults()
+    assert h.service.stop_requests == 1
+    h.service.finish_stopping()
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+    assert h.service.started_with == [make_config()]
+    assert h.controller.can_start is True
+
+
+def test_restoring_defaults_during_a_restart_cancels_it(h):
+    h.controller.start(make_config())
+    h.controller.save(make_config(hotkey="M"))
+
+    h.controller.restore_defaults()
+    h.service.finish_stopping()
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+    assert h.service.started_with == [make_config()]
+    assert h.controller.restart_pending is False
+    assert h.controller.can_start is True
+
+
 def test_a_restart_that_cannot_start_the_new_worker_says_so(h):
     h.controller.start(make_config())
     h.controller.save(make_config(hotkey="M"))

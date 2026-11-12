@@ -52,6 +52,8 @@ All notable changes to MapHide are documented here.
   changed.
 - Changed Start to say in the field log when it saves changes you made in
   Settings without pressing Save.
+- Fixed Reset in Settings, while MapHide was running, trying to connect with
+  empty settings and ending on a connection error. Reset now stops MapHide.
 
 ## v0.2.6 - 2026-10-27
 

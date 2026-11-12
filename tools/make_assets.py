@@ -18,8 +18,9 @@ ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
 
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
-# Window and taskbar icon, tray icon, small window icon.
-ICON_PNG_SIZES = {"MapHide_Icon.png": 256, "MapHide_Icon_64.png": 64, "MapHide_Icon_32.png": 32}
+# The logo in Settings > About, drawn at 28px: 64 keeps it sharp on a
+# high-DPI screen. The window, taskbar and tray use MapHide.ico.
+ICON_PNG_SIZES = {"MapHide_Icon_64.png": 64}
 WATERMARK_SIZE = 56
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"

@@ -13,12 +13,6 @@ def set_app_id(app_id):
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
 
 
-def top_level_window(child_hwnd):
-    """The window handle Windows draws the title bar for, given the handle of
-    the window's client area."""
-    return ctypes.windll.user32.GetParent(child_hwnd)
-
-
 def apply_dark_title_bar(hwnd, caption_color):
     """Draw the title bar dark, in `caption_color` ("#rrggbb") where Windows
     supports a custom caption color. Silently does nothing where it doesn't:

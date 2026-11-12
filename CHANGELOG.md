@@ -4,6 +4,15 @@ All notable changes to MapHide are documented here.
 
 ## Unreleased
 
+- A redesigned window. A map preview shows at a glance whether your map is
+  covered, alongside the live OBS scene and a short log of what MapHide is
+  doing. Settings slide in from the side, and two themes are available:
+  Field (the new look) and Legacy (the old colors).
+- New **Test Link** button in Settings: it checks your OBS details without
+  starting MapHide and tells you how many scenes carry your overlay source.
+- New test button on the main screen ("Hold G to test") shows and hides the
+  overlay exactly as your key would, so you can check your OBS setup without
+  switching to your game.
 - New app icon: a map with a red X, sharp at every size from the tray to the
   taskbar.
 - Fixed MapHide lingering in the background for several seconds, without

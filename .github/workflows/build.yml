@@ -38,7 +38,7 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
-      - name: Import check
+      - name: Window check
         run: python map_hider.py --selftest
 
   build:
@@ -110,9 +110,11 @@ jobs:
           if (-not (Test-Path 'dist/MapHide/_internal/python*.dll')) { throw '_internal runtime missing' }
           if (-not (Test-Path 'dist/MapHide/_internal/assets/MapHide_Icon_64.png')) { throw 'bundled assets missing' }
 
-          # Import the whole module graph from the frozen exe. A missing hidden
-          # import exits non-zero here instead of crashing on a user's machine;
-          # the windowed build has no stdout, so the exit code is the signal.
+          # Import the whole module graph from the frozen exe and build the
+          # window without showing it. A missing hidden import, or a piece of
+          # Qt the spec trimmed that the window needs, exits non-zero here
+          # instead of failing on a user's machine; the windowed build has no
+          # stdout, so the exit code is the signal.
           # (Start-Process, not the call operator, so a windowed exe is waited on.)
           $p = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru -Wait
           if ($p.ExitCode -ne 0) { throw "MapHide.exe --selftest exited $($p.ExitCode)" }

@@ -295,3 +295,21 @@ def test_closing_twice_is_one_exit(h):
 
     assert h.hides == [True]
     assert h.quits == 1
+
+
+def test_with_a_tray_closing_the_window_keeps_maphide_running(h):
+    h.backend.hides_to_tray = True
+
+    h.backend.requestClose()
+
+    assert h.hides == [True]
+    assert h.quits == 0
+    assert not h.backend.controller.exit_requested
+
+
+def test_exit_from_the_tray_quits(h):
+    h.backend.hides_to_tray = True
+
+    h.backend.exitApp()
+
+    assert h.quits == 1

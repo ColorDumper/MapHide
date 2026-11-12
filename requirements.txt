@@ -1,7 +1,7 @@
 # Runtime dependencies (needed to run map_hider.py).
-# tkinter ships with Python on Windows and is not listed here.
 obsws-python==1.8.0
 # Pulled in by obsws-python; MapHide names its error types directly.
 websocket-client==1.9.2
-Pillow==13.0.0
-pystray==0.19.5
+# The window and tray icon. Essentials is the core of Qt without the
+# extra modules MapHide doesn't use.
+PySide6-Essentials==6.12.0

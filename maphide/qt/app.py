@@ -9,15 +9,16 @@ import sys
 from dataclasses import asdict
 
 from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QFontDatabase, QGuiApplication, QIcon
+from PySide6.QtGui import QAction, QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from ..config import config_from_form
 from ..controller import HISTORY_NOTICE, AppController
 from ..fieldlog import field_line
 from ..logs import plain_reason
 from ..overlay import human_ts
-from ..paths import APP_DIR, APP_USER_MODEL_ID, APP_VERSION, ICON_RUNTIME_PNG_PATH
+from ..paths import APP_DIR, APP_NAME, APP_USER_MODEL_ID, APP_VERSION, ICON_ICO_PATH
 from ..themes import THEMES, theme_name
 from ..winutil import apply_dark_title_bar, set_app_id
 from .view import (
@@ -37,6 +38,9 @@ FONTS_DIR = APP_DIR / "assets" / "fonts"
 POLL_INTERVAL_MS = 100
 AUTO_CONNECT_DELAY_MS = 250
 CONFIG_NOT_LOADED = "Settings couldn't be read, so the defaults are in use."
+NO_TRAY = "No notification area, so closing the window will exit MapHide."
+# Fonts the window is drawn in; the self-test checks each one loaded.
+FONT_FAMILIES = ("Barlow", "Barlow Condensed", "IBM Plex Mono")
 
 
 def argb(color, opacity):
@@ -88,6 +92,8 @@ class Backend(QObject):
         # and gives up if one refuses - and this window refuses until the
         # worker has finished hiding the overlay, which is when this runs.
         self._quit_app = quit_app or (lambda: QGuiApplication.exit(0))
+        # Whether closing the window leaves MapHide running in the tray.
+        self.hides_to_tray = False
         self._view = main_view(self.controller)
         self._last_entry = None
         self._form = form_values(self.controller.running_config)
@@ -243,8 +249,16 @@ class Backend(QObject):
 
     @Slot()
     def requestClose(self):
-        """The window's close button: stop the worker, letting it hide the
-        overlay, then quit."""
+        """The window's close button: hide to the tray, or exit when there
+        is no tray to come back from."""
+        if self.hides_to_tray and not self.controller.exit_requested:
+            self.hideRequested.emit()
+        else:
+            self.exitApp()
+
+    @Slot()
+    def exitApp(self):
+        """Stop the worker, letting it hide the overlay, then quit."""
         if self.controller.begin_exit(self._quit_app):
             self.hideRequested.emit()
 
@@ -357,28 +371,116 @@ def load_fonts():
         QFontDatabase.addApplicationFont(str(font))
 
 
+def build_window(backend):
+    """Load the window for `backend`, still hidden. Returns (engine, window,
+    QML warnings); window is None if it failed to load."""
+    warnings = []
+    engine = QQmlApplicationEngine()
+    engine.warnings.connect(lambda errors: warnings.extend(e.toString() for e in errors))
+    engine.rootContext().setContextProperty("backend", backend)
+    engine.load(QUrl.fromLocalFile(str(QML_PATH)))
+    roots = engine.rootObjects()
+    return engine, (roots[0] if roots else None), warnings
+
+
+class TrayIcon:
+    """The notification-area icon: click it, or Show, to bring the window
+    back; Exit quits."""
+
+    def __init__(self, icon, on_show, on_exit):
+        self._icon = QSystemTrayIcon(icon)
+        self._icon.setToolTip(APP_NAME)
+        self._menu = QMenu()
+        show = QAction("Show", self._menu)
+        show.triggered.connect(on_show)
+        exit_action = QAction("Exit", self._menu)
+        exit_action.triggered.connect(on_exit)
+        self._menu.addAction(show)
+        self._menu.addAction(exit_action)
+        self._menu.setDefaultAction(show)
+        self._icon.setContextMenu(self._menu)
+        self._icon.activated.connect(
+            lambda reason: (
+                on_show() if reason == QSystemTrayIcon.ActivationReason.Trigger else None
+            )
+        )
+
+    def show(self):
+        self._icon.show()
+
+    def hide(self):
+        self._icon.hide()
+
+
 def main():
     set_app_id(APP_USER_MODEL_ID)
-    app = QGuiApplication(sys.argv)
-    app.setWindowIcon(QIcon(str(ICON_RUNTIME_PNG_PATH)))
+    app = QApplication(sys.argv)
+    # The tray keeps MapHide running with no window open.
+    app.setQuitOnLastWindowClosed(False)
+    icon = QIcon(str(ICON_ICO_PATH))
+    app.setWindowIcon(icon)
     load_fonts()
 
     backend = Backend()
-    engine = QQmlApplicationEngine()
-    engine.rootContext().setContextProperty("backend", backend)
-    engine.load(QUrl.fromLocalFile(str(QML_PATH)))
-    if not engine.rootObjects():
+    engine, window, _warnings = build_window(backend)
+    if window is None:
         return 1
-    window = engine.rootObjects()[0]
 
     def paint_title_bar():
         apply_dark_title_bar(int(window.winId()), backend.theme["title_bar"])
 
-    paint_title_bar()
+    def show_window():
+        if backend.controller.exit_requested:
+            # A late tray click while MapHide is closing.
+            return
+        window.showNormal()
+        window.raise_()
+        window.requestActivate()
+
+    tray = None
+    if QSystemTrayIcon.isSystemTrayAvailable():
+        tray = TrayIcon(icon, on_show=show_window, on_exit=backend.exitApp)
+        tray.show()
+        backend.hides_to_tray = True
+
     backend.themeChanged.connect(paint_title_bar)
     backend.hideRequested.connect(window.hide)
     backend.load()
+    if tray is None:
+        backend.notice(NO_TRAY)
+    # Shown only now, so it appears with its theme's title bar already set.
+    paint_title_bar()
+    window.show()
     result = app.exec()
+    if tray is not None:
+        tray.hide()
     # Tear the window down while the backend it reads from still exists.
     del engine
     return result
+
+
+def selftest():
+    """Build the window without showing it, and check that it loaded with
+    its map image and fonts. Returns an exit code: 0 when all is well. The
+    build workflow runs this against the packaged app, so a Qt piece left
+    out of the bundle fails there instead of on someone's PC."""
+    app = QApplication(sys.argv)
+    load_fonts()
+    backend = Backend()
+    engine, window, warnings = build_window(backend)
+    problems = list(warnings)
+    if window is None:
+        problems.append("the window did not load")
+    else:
+        map_image = window.findChild(QObject, "mapImage")
+        # A loaded image has a size; one that failed to decode has none.
+        if map_image is None or not map_image.property("implicitWidth"):
+            problems.append("the map image did not load")
+    missing_fonts = set(FONT_FAMILIES) - set(QFontDatabase.families())
+    if missing_fonts:
+        problems.append(f"fonts not loaded: {', '.join(sorted(missing_fonts))}")
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    del engine
+    del app
+    return 1 if problems else 0

@@ -19,7 +19,8 @@ Window {
     maximumWidth: width
     minimumHeight: height
     maximumHeight: height
-    visible: true
+    // Shown from Python once its title bar matches the theme.
+    visible: false
     title: "MapHide"
     color: t.bg
 
@@ -222,6 +223,7 @@ Window {
 
                         Image {
                             id: mapImage
+                            objectName: "mapImage"
                             anchors.fill: parent
                             source: backend.assets + "/MapBox.webp"
                             fillMode: Image.PreserveAspectCrop

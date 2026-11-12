@@ -53,16 +53,8 @@ def test_icon_holds_every_size_as_a_clean_png_frame():
     assert sorted(sizes) == [(size, size) for size in ICO_SIZES]
 
 
-@pytest.mark.parametrize(
-    ("name", "size"),
-    [
-        ("MapHide_Icon.png", (256, 256)),
-        ("MapHide_Icon_64.png", (64, 64)),
-        ("MapHide_Icon_32.png", (32, 32)),
-    ],
-)
-def test_icon_pngs_are_square_at_their_size(name, size):
-    assert Image.open(ASSETS / name).size == size
+def test_the_about_logo_is_square_at_its_size():
+    assert Image.open(ASSETS / "MapHide_Icon_64.png").size == (64, 64)
 
 
 @pytest.mark.parametrize(

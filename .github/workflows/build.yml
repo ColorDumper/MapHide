@@ -67,37 +67,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      # A tagged build must match the version baked into the app: APP_VERSION
-      # drives the runtime, version_info.txt drives the exe's file properties.
+      # A tagged build must match the version in maphide/version.py, the one
+      # place it is written; the exe's file properties are generated from it.
       - name: Check version matches tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $tag = '${{ github.ref_name }}'
-          $line = Select-String -Path maphide/paths.py -Pattern 'APP_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
-          $appVersion = $line.Matches[0].Groups[1].Value
+          $appVersion = python -c "from maphide.version import APP_VERSION; print(APP_VERSION)"
           Write-Host "tag=$tag  APP_VERSION=$appVersion"
           if ($tag -ne $appVersion) {
-            Write-Error "Tag '$tag' does not match APP_VERSION '$appVersion' in maphide/paths.py. Bump the version strings before tagging."
+            Write-Error "Tag '$tag' does not match VERSION in maphide/version.py ('$appVersion'). Set it before tagging."
             exit 1
           }
-
-          $digits = $tag.TrimStart('v')
-          $want4 = "$digits.0"
-          $wantTuple = ($digits -replace '\.', ', ') + ', 0'
-          $vi = Get-Content version_info.txt -Raw
-          $required = @(
-            "filevers=($wantTuple)"
-            "prodvers=($wantTuple)"
-            "StringStruct(`"FileVersion`", `"$want4`")"
-            "StringStruct(`"ProductVersion`", `"$want4`")"
-          )
-          $missing = $required | Where-Object { -not $vi.Contains($_) }
-          if ($missing) {
-            Write-Error "version_info.txt is out of sync with tag '$tag'. Expected: $($missing -join '; '). Update version_info.txt before tagging."
-            exit 1
-          }
-          Write-Host "version_info.txt matches $tag"
 
       - name: Build
         run: pyinstaller --noconfirm MapHide.spec
@@ -109,6 +91,13 @@ jobs:
           if (-not (Test-Path $exe)) { throw 'MapHide.exe missing' }
           if (-not (Test-Path 'dist/MapHide/_internal/python*.dll')) { throw '_internal runtime missing' }
           if (-not (Test-Path 'dist/MapHide/_internal/assets/MapHide_Icon_64.png')) { throw 'bundled assets missing' }
+
+          # The exe's file properties are generated from maphide/version.py.
+          $want = (python -c "from maphide.version import version_parts; print('.'.join(map(str, version_parts())))")
+          $have = (Get-Item $exe).VersionInfo.FileVersion
+          if ($have -ne $want) { throw "MapHide.exe file version is '$have', expected '$want'" }
+          $channel = (Get-Content 'dist/MapHide/_internal/channel.txt' -Raw).Trim()
+          if ($channel -ne 'github') { throw "Build channel is '$channel', expected 'github'" }
 
           # Import the whole module graph from the frozen exe and build the
           # window without showing it. A missing hidden import, or a piece of

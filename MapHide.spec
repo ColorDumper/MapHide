@@ -6,6 +6,21 @@
 
 import os
 import re
+import sys
+
+sys.path.insert(0, SPECPATH)
+from maphide.version import CHANNEL_FILE, CHANNEL_GITHUB, CHANNELS, VERSION
+from tools.version_resource import version_resource
+
+# Which kind of build this is: the GitHub download unless MAPHIDE_CHANNEL
+# names another. The app reads it from channel.txt in the bundle.
+CHANNEL = os.environ.get('MAPHIDE_CHANNEL', CHANNEL_GITHUB)
+if CHANNEL not in CHANNELS:
+    raise SystemExit(f"MAPHIDE_CHANNEL must be one of {', '.join(CHANNELS)}, not {CHANNEL!r}")
+os.makedirs(workpath, exist_ok=True)
+channel_file = os.path.join(workpath, CHANNEL_FILE)
+with open(channel_file, 'w', encoding='utf-8') as file:
+    file.write(CHANNEL)
 
 a = Analysis(
     ['map_hider.py'],
@@ -15,6 +30,7 @@ a = Analysis(
         ('MapHide.ico', '.'),
         ('assets', 'assets'),
         ('maphide/qt/*.qml', 'maphide/qt'),
+        (channel_file, '.'),
     ],
     hiddenimports=[],
     hookspath=[],
@@ -76,7 +92,8 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['MapHide.ico'],
-    version='version_info.txt',
+    # The exe's file properties, generated from maphide/version.py.
+    version=version_resource(VERSION),
 )
 
 coll = COLLECT(

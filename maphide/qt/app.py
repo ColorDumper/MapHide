@@ -18,8 +18,9 @@ from ..controller import HISTORY_NOTICE, AppController
 from ..fieldlog import field_line
 from ..logs import plain_reason
 from ..overlay import human_ts
-from ..paths import APP_DIR, APP_NAME, APP_USER_MODEL_ID, APP_VERSION, ICON_ICO_PATH
+from ..paths import APP_DIR, APP_NAME, APP_USER_MODEL_ID, ICON_ICO_PATH
 from ..themes import THEMES, theme_name
+from ..version import APP_VERSION
 from ..winutil import apply_dark_title_bar, set_app_id
 from .view import (
     FORM_FIELDS,

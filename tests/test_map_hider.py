@@ -150,3 +150,70 @@ def test_gives_up_at_the_ceiling_if_the_service_never_reports_stopped():
 
     assert service.is_running is True  # gave up - not because it stopped
     assert service.wait_calls == 1  # one 10ms poll already clears the 5ms ceiling
+
+
+# --- `--quit` and a second launch --------------------------------------------
+
+
+def _patch_running_copy(monkeypatch, running, closes=True):
+    sent = []
+    monkeypatch.setattr(map_hider, "is_running", lambda: running)
+    monkeypatch.setattr(map_hider, "send_command", lambda command: sent.append(command) or True)
+    monkeypatch.setattr("maphide.single_instance.wait_until_closed", lambda seconds: closes)
+    return sent
+
+
+def test_quit_with_nothing_running_succeeds_without_sending(monkeypatch):
+    sent = _patch_running_copy(monkeypatch, running=False)
+
+    assert map_hider.quit_running_copy() == 0
+    assert sent == []
+
+
+def test_quit_asks_the_running_copy_to_exit_and_waits_for_it(monkeypatch):
+    sent = _patch_running_copy(monkeypatch, running=True, closes=True)
+
+    assert map_hider.quit_running_copy() == 0
+    assert sent == ["quit"]
+
+
+def test_quit_fails_if_the_running_copy_does_not_close(monkeypatch):
+    _patch_running_copy(monkeypatch, running=True, closes=False)
+
+    assert map_hider.quit_running_copy() == 1
+
+
+def _second_launch(monkeypatch, delivered, argv=("map_hider.py",)):
+    shown = []
+    monkeypatch.setattr(map_hider.sys, "argv", list(argv))
+    monkeypatch.setattr(map_hider, "acquire_single_instance", lambda *args: False)
+    monkeypatch.setattr(map_hider, "send_command", lambda command: delivered)
+    monkeypatch.setattr(
+        map_hider, "report_already_running", lambda headless: shown.append(headless)
+    )
+    try:
+        map_hider.main()
+    except SystemExit as exit_:
+        return exit_.code, shown
+    raise AssertionError("main() returned instead of exiting")
+
+
+def test_a_second_launch_brings_the_running_window_forward(monkeypatch):
+    code, shown = _second_launch(monkeypatch, delivered=True)
+
+    assert code == 0
+    assert shown == []
+
+
+def test_a_second_launch_falls_back_to_the_notice(monkeypatch):
+    code, shown = _second_launch(monkeypatch, delivered=False)
+
+    assert code == 1
+    assert shown == [False]
+
+
+def test_a_second_headless_launch_only_prints(monkeypatch):
+    code, shown = _second_launch(monkeypatch, delivered=True, argv=("map_hider.py", "--headless"))
+
+    assert code == 1
+    assert shown == [True]

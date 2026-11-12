@@ -33,6 +33,12 @@ All notable changes to MapHide are documented here.
 - Changed the debug log option to a switch under Behavior in Settings.
 - Changed the download size to about 35 MB, because of the new window.
 - Added Enter and Esc as ways to finish typing in a text field.
+- Changed launching MapHide while it's already running to bring the open
+  window to the front, even from the tray, instead of showing a notice.
+- Added `MapHide.exe --quit`, which closes a running MapHide the same way
+  Exit in the tray does.
+- Fixed the overlay staying visible in OBS when Windows signed out, restarted
+  or shut down while MapHide was running.
 
 ## v0.2.6 - 2026-10-27
 

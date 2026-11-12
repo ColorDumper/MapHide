@@ -1,5 +1,5 @@
 # Runtime dependencies (needed to run map_hider.py).
-obsws-python==1.8.0
+obsws-python==1.8.1
 # Pulled in by obsws-python; MapHide names its error types directly.
 websocket-client==1.9.2
 # The window and tray icon. Essentials is the core of Qt without the

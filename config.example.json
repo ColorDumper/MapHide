@@ -10,5 +10,6 @@
   "hide_hotkey": "H",
   "hide_delay_ms": 120,
   "log_enabled": false,
-  "theme": "field"
+  "theme": "field",
+  "check_updates": true
 }

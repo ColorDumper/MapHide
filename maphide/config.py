@@ -25,7 +25,7 @@ MIN_PORT = 1
 MAX_PORT = 65535
 # Settings only the window uses. Changing these never needs the worker
 # restarted, so saving them leaves the OBS connection and the overlay alone.
-WINDOW_ONLY_FIELDS = frozenset({"auto_connect", "theme"})
+WINDOW_ONLY_FIELDS = frozenset({"auto_connect", "theme", "check_updates"})
 
 
 def clamp(value, low, high):
@@ -58,6 +58,7 @@ class AppConfig:
     hide_delay_ms: int = DEFAULT_HIDE_DELAY_MS
     log_enabled: bool = False
     theme: str = DEFAULT_THEME
+    check_updates: bool = True
 
     @classmethod
     def from_dict(cls, data):
@@ -95,6 +96,7 @@ class AppConfig:
             ),
             log_enabled=_flag(data, "log_enabled", False),
             theme=theme_name(data.get("theme") or DEFAULT_THEME),
+            check_updates=_flag(data, "check_updates", True),
         )
 
     def to_dict(self):
@@ -111,6 +113,7 @@ class AppConfig:
             "hide_delay_ms": self.hide_delay_ms,
             "log_enabled": self.log_enabled,
             "theme": self.theme,
+            "check_updates": self.check_updates,
         }
 
     def to_loggable_dict(self):
@@ -196,6 +199,7 @@ def config_from_form(
     auto_reconnect,
     log_enabled,
     theme=DEFAULT_THEME,
+    check_updates=True,
 ):
     """Build an AppConfig from what a settings form holds, as typed.
 
@@ -227,6 +231,7 @@ def config_from_form(
         hide_delay_ms=clamp_hide_delay(hide_delay_ms),
         log_enabled=bool(log_enabled),
         theme=theme_name(theme),
+        check_updates=bool(check_updates),
     )
 
 

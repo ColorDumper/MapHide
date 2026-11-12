@@ -494,8 +494,8 @@ def test_a_connection_check_that_breaks_still_reports_back(h):
 
 @pytest.mark.parametrize(
     "change",
-    [{"theme": "legacy"}, {"auto_connect": True}, {}],
-    ids=["theme", "connect on startup", "nothing"],
+    [{"theme": "legacy"}, {"auto_connect": True}, {"check_updates": False}, {}],
+    ids=["theme", "connect on startup", "update check", "nothing"],
 )
 def test_saving_a_change_the_worker_does_not_use_leaves_it_running(h, change):
     h.controller.start(make_config())

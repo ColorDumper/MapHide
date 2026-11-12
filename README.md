@@ -247,7 +247,7 @@ This is normal behavior. MapHide hides to the system tray instead of fully closi
 
 ## Version
 
-The latest release and its download are on the [Releases page](https://github.com/ColorDumper/MapHide/releases/latest). To update, run the newer setup file; your settings are kept. To remove MapHide, use **Settings > Apps > Installed apps** in Windows, where you can choose whether to keep your settings. What changed in each version is in the [changelog](CHANGELOG.md).
+The latest release and its download are on the [Releases page](https://github.com/ColorDumper/MapHide/releases/latest). MapHide checks for a new version each time it opens (you can turn this off under `BEHAVIOR` in `SETTINGS`). When one is out, click `UPDATE` under `ABOUT`: MapHide closes, updates and opens again, and your settings are kept. You can also run the newer setup file yourself. To remove MapHide, use **Settings > Apps > Installed apps** in Windows, where you can choose whether to keep your settings. What changed in each version is in the [changelog](CHANGELOG.md).
 
 ## Credits
 

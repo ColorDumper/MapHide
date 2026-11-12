@@ -262,11 +262,25 @@ def test_a_form_without_a_theme_picker_keeps_the_default_theme():
     assert config_from_form(**FORM, theme="Legacy").theme == "legacy"
 
 
+# --- the update check setting ---
+
+
+def test_checking_for_updates_is_on_unless_turned_off(tmp_path):
+    assert AppConfig.from_dict(BASE).check_updates is True
+    assert config_from_form(**FORM).check_updates is True
+
+    path = tmp_path / "config.json"
+    save_config(AppConfig.from_dict({**BASE, "check_updates": False}), path)
+
+    assert load_config(path).check_updates is False
+
+
 @pytest.mark.parametrize(
     ("change", "differs"),
     [
         ({"theme": "legacy"}, False),
         ({"auto_connect": True}, False),
+        ({"check_updates": False}, False),
         ({"hotkey": "M"}, True),
         ({"host": "10.0.0.9"}, True),
         ({"log_enabled": True}, True),

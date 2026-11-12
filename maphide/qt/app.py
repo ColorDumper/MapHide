@@ -26,13 +26,14 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 from shiboken6 import isValid
 
 from ..config import config_from_form
-from ..controller import HISTORY_NOTICE, AppController
+from ..controller import HISTORY_NOTICE, HISTORY_UPDATE_AVAILABLE, AppController
 from ..fieldlog import field_line
 from ..logs import plain_reason
 from ..overlay import human_ts
 from ..paths import APP_DIR, APP_NAME, APP_USER_MODEL_ID, ICON_ICO_PATH
 from ..single_instance import COMMAND_QUIT, COMMAND_SHOW, command_pipe_name
 from ..themes import THEMES, theme_name
+from ..updates import RELEASES_PAGE, Updater, checks_for_updates
 from ..version import APP_VERSION
 from ..winutil import apply_dark_title_bar, set_app_id
 from .view import (
@@ -51,6 +52,8 @@ FONTS_DIR = APP_DIR / "assets" / "fonts"
 # scene, and whether the map is covered.
 POLL_INTERVAL_MS = 100
 AUTO_CONNECT_DELAY_MS = 250
+# The startup update check waits a little, so it never slows MapHide opening.
+UPDATE_CHECK_DELAY_MS = 3000
 CONFIG_NOT_LOADED = "Settings couldn't be read, so the defaults are in use."
 NO_TRAY = "No notification area, so closing the window will exit MapHide."
 # How long to wait, when Windows is signing out or shutting down, for the
@@ -101,11 +104,21 @@ class Backend(QObject):
     saved = Signal()
     # A reason to show in the drawer's footer.
     saveFailed = Signal(str)
+    # The update check in Settings.
+    updateChanged = Signal()
 
-    def __init__(self, quit_app=None, schedule=_schedule, **controller_options):
-        """`controller_options` go to the AppController - a test passes a
-        stand-in service, save or connection check there."""
+    def __init__(
+        self,
+        quit_app=None,
+        schedule=_schedule,
+        updater_options=None,
+        update_checks=None,
+        **controller_options,
+    ):
+        """`controller_options` go to the AppController, `updater_options`
+        to the Updater - a test passes stand-ins there."""
         super().__init__()
+        self._schedule = schedule
         self.controller = AppController(
             schedule=schedule, notify=self.notice, on_change=self.refresh, **controller_options
         )
@@ -125,6 +138,10 @@ class Backend(QObject):
         self._tested_source = None
         self._tested_count = None
         self._settings = self._settings_view()
+        # Whether this copy looks for updates at all; a Store copy doesn't.
+        self._update_checks = checks_for_updates() if update_checks is None else update_checks
+        self.updater = Updater(schedule, on_change=self.refresh, **(updater_options or {}))
+        self._update = self._update_view()
         self._poll_timer = QTimer(self, interval=POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll)
 
@@ -139,6 +156,8 @@ class Backend(QObject):
         self._poll_timer.start()
         if cfg.auto_connect:
             QTimer.singleShot(AUTO_CONNECT_DELAY_MS, self._start)
+        if cfg.check_updates and self._update_checks:
+            self._schedule(UPDATE_CHECK_DELAY_MS, self._check_quietly)
 
     # Keeping the window current.
 
@@ -159,6 +178,10 @@ class Backend(QObject):
         if settings != self._settings:
             self._settings = settings
             self.settingsChanged.emit()
+        update = self._update_view()
+        if update != self._update:
+            self._update = update
+            self.updateChanged.emit()
 
     def _source_count(self):
         """How many scenes carry the source named in the form, if known:
@@ -171,6 +194,12 @@ class Backend(QObject):
         if source == self._tested_source:
             return self._tested_count
         return None
+
+    def _update_view(self):
+        updater = self.updater
+        version = updater.release.version if updater.release else ""
+        # Whole percent, so the window redraws only when the number moves.
+        return (updater.state, updater.message, version, round(updater.progress * 100))
 
     def _settings_view(self):
         text, warning = source_line(self._source_count())
@@ -394,6 +423,65 @@ class Backend(QObject):
             return
         self._set_form(cfg)
         self.saved.emit()
+
+    # Updates.
+
+    @Property(bool, constant=True)
+    def updatesShown(self):
+        return self._update_checks
+
+    @Property(bool, constant=True)
+    def canInstallUpdate(self):
+        return self.updater.can_install
+
+    @Property(str, constant=True)
+    def releasesPage(self):
+        return RELEASES_PAGE
+
+    @Property(str, notify=updateChanged)
+    def updateState(self):
+        return self._update[0]
+
+    @Property(str, notify=updateChanged)
+    def updateMessage(self):
+        return self._update[1]
+
+    @Property(str, notify=updateChanged)
+    def updateVersion(self):
+        return self._update[2]
+
+    @Property(int, notify=updateChanged)
+    def updatePercent(self):
+        return self._update[3]
+
+    def _check_quietly(self):
+        """The check when MapHide opens: a new version is noted in the field
+        log, and a failure (no internet, say) says nothing."""
+        self.updater.check(on_found=self._update_found, quiet=True)
+
+    def _update_found(self, release):
+        self.controller.add_history(
+            human_ts(),
+            f"MapHide {release.version} is available.",
+            HISTORY_UPDATE_AVAILABLE,
+            release.version,
+        )
+        self.refresh()
+
+    @Slot()
+    def checkForUpdates(self):
+        if self._update_checks:
+            self.updater.check()
+
+    @Slot()
+    def clearUpdateResult(self):
+        self.updater.clear_latest()
+
+    @Slot()
+    def installUpdate(self):
+        """Download the new version and hand over to its installer, which
+        closes MapHide, updates it and opens it again."""
+        self.updater.install(on_started=self.exitApp)
 
 
 def load_fonts():

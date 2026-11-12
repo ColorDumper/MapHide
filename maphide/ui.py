@@ -1,9 +1,6 @@
 """The settings window and the tray icon."""
 
-import ctypes
-import queue
 import sys
-import threading
 
 try:
     import tkinter as tk
@@ -16,15 +13,10 @@ except ImportError:
     tkfont = None
 
 try:
-    import pystray
-    from PIL import Image, ImageDraw, ImageTk
+    from PIL import Image, ImageTk
 except ImportError:
-    pystray = None
     Image = None
-    ImageDraw = None
     ImageTk = None
-
-from dataclasses import replace
 
 from .config import (
     DEFAULT_HIDE_DELAY_MS,
@@ -32,12 +24,10 @@ from .config import (
     DEFAULT_HOTKEY,
     MAX_HIDE_DELAY_MS,
     MIN_HIDE_DELAY_MS,
-    AppConfig,
-    clamp,
-    default_config,
-    load_config,
-    save_config,
+    clamp_hide_delay,
+    config_from_form,
 )
+from .controller import HISTORY_LINE_COUNT, AppController
 from .hotkeys import (
     HIDE_KEY_HELP,
     MODIFIER_STATE_MASKS,
@@ -47,9 +37,7 @@ from .hotkeys import (
     normalize_event_key,
 )
 from .logs import plain_reason
-from .overlay import MapHideService, human_ts, stop_wait_should_continue
 from .paths import (
-    APP_NAME,
     APP_USER_MODEL_ID,
     APP_VERSION,
     ICON_ICO_PATH,
@@ -58,33 +46,23 @@ from .paths import (
     ICON_WINDOW_PNG_PATH,
     WATERMARK_PNG_PATH,
 )
+from .tray import TrayIcon, tray_available
+from .winutil import apply_dark_title_bar, set_app_id, top_level_window
 
 KEY_BUTTON_WIDTH = 16
 STATUS_AREA_WIDTH = 300
 STATUS_VALUE_HEIGHT = 40
-HISTORY_LINE_COUNT = 10
 HELP_AREA_WIDTH = 340
 HELP_AREA_HEIGHT = 44
 EVENT_DRAIN_INTERVAL_MS = 100
 NOTICE_MS = 6000
 LONG_NOTICE_MS = 10_000
 AUTO_CONNECT_DELAY_MS = 250
-RESTART_POLL_INTERVAL_MS = 50
-# A backstop, not a normal-case budget: the worker's own shutdown cleanup can
-# legitimately take a moment (one OBS request per scene carrying the overlay
-# source), so exit polls for it to actually finish rather than guessing at a
-# fixed wait - see stop_wait_should_continue. This only ever matters if that
-# cleanup somehow runs far longer than any realistic scene count justifies.
-EXIT_WAIT_CEILING_MS = 15_000
 KEY_CAPTURE_PROMPT = "Press key..."
 KEY_UNSET_LABEL = "Select"
 SETTINGS_SHOW_LABEL = "Settings >"
 SETTINGS_HIDE_LABEL = "< Settings"
 FOCUSABLE_WIDGET_CLASSES = ("TEntry", "Entry")
-TRAY_FALLBACK_SIZE = (64, 64)
-COLOR_TRAY_BG = "#101820"
-COLOR_TRAY_TILE = "#2d6a4f"
-COLOR_TRAY_MARK = "#d9ed92"
 WINDOW_TITLE = "MapHide"
 COLOR_BG = "#12161d"
 COLOR_PANEL = "#1b2330"
@@ -99,29 +77,20 @@ COLOR_DISABLED = "#5a6472"
 COLOR_WARNING = "#e6b450"
 
 
-def status_line(status, restart_pending):
-    """What the status line says: the service's own wording, except while a
-    settings change is restarting it - the stop and start in between are not
-    worth showing."""
-    return "Applying settings..." if restart_pending else status.message
-
-
-def set_windows_app_id():
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
-
-
 class MapHideApp:
+    """Draws the window and forwards what the user does to the controller."""
+
     def __init__(self, root):
         self.root = root
         self.root.title(WINDOW_TITLE)
         self.root.resizable(False, False)
-        self.service = MapHideService()
+        self.controller = AppController(
+            schedule=self.root.after,
+            notify=self._show_notice,
+            on_change=self._refresh,
+        )
         self.tray_icon = None
-        self.tray_thread = None
-        self.exit_requested = False
         self.settings_visible = False
-        self.restart_pending = False
-        self.pending_restart_config = None
         self.reset_confirm_pending = False
         self._notice_job = None
         self.collapsed_width = 0
@@ -149,11 +118,7 @@ class MapHideApp:
         self.log_enabled_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Idle")
         self._shown_status = "Idle"
-        self.history_lines = []
-        self.help_text_var = tk.StringVar(
-            value=f"Hold {DEFAULT_HOTKEY} to show the overlay. Release {DEFAULT_HOTKEY} to hide it."
-        )
-        self.running_config = default_config()
+        self.help_text_var = tk.StringVar(value=self.controller.help_text)
         self.key_capture_target = None
 
         # Stay hidden while building. Windows gives a taskbar button its icon at
@@ -623,19 +588,10 @@ class MapHideApp:
         # Tell DWM the caption is dark and paint it COLOR_BG to match the body.
         try:
             self.root.update_idletasks()
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-            dwm = ctypes.windll.dwmapi
-            on = ctypes.c_int(1)
-            for use_dark in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE, older build's id
-                rc = dwm.DwmSetWindowAttribute(hwnd, use_dark, ctypes.byref(on), ctypes.sizeof(on))
-                if rc == 0:
-                    break
-            r, g, b = (int(COLOR_BG[i : i + 2], 16) for i in (1, 3, 5))
-            caption = ctypes.c_uint(r | (g << 8) | (b << 16))  # DWMWA_CAPTION_COLOR = 35
-            dwm.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(caption), ctypes.sizeof(caption))
+            hwnd = top_level_window(self.root.winfo_id())
         except (OSError, AttributeError, tk.TclError):
-            # Older Windows, or DWM unavailable: the light title bar is cosmetic.
-            pass
+            return
+        apply_dark_title_bar(hwnd, COLOR_BG)
 
     def _reveal_window(self):
         # Map the window already transparent, let it paint, then show it - so a
@@ -694,10 +650,8 @@ class MapHideApp:
         self._update_toggle_mode_ui()
 
     def _load_initial_config(self):
-        try:
-            cfg = load_config()
-        except (OSError, ValueError, KeyError):
-            cfg = default_config()
+        cfg, loaded = self.controller.load()
+        if not loaded:
             self._show_notice(
                 "Config not loaded. Fill in values and save settings.", LONG_NOTICE_MS
             )
@@ -706,15 +660,6 @@ class MapHideApp:
             self.root.after(AUTO_CONNECT_DELAY_MS, self.start_service)
 
     def _set_form(self, cfg):
-        cfg = replace(
-            cfg,
-            hotkey=cfg.hotkey if is_valid_show_hotkey(cfg.hotkey) else DEFAULT_HOTKEY,
-            hide_hotkey=(
-                cfg.hide_hotkey if is_valid_hide_hotkey(cfg.hide_hotkey) else DEFAULT_HIDE_HOTKEY
-            ),
-            hide_delay_ms=self._clamp_hide_delay(cfg.hide_delay_ms),
-        )
-        self.running_config = cfg
         self.host_var.set(cfg.host)
         self.port_var.set(str(cfg.port))
         self.password_var.set(cfg.password)
@@ -733,58 +678,28 @@ class MapHideApp:
         self._update_help_text()
 
     def _read_form(self):
-        host = self.host_var.get().strip()
-        port_text = self.port_var.get().strip()
-        password = self.password_var.get()
-        scene_item_name = self.item_var.get().strip()
-        hotkey = self.hotkey_var.get().strip().upper()
-        toggle_mode = self.toggle_mode_var.get()
-        hide_hotkey = self.hide_hotkey_var.get().strip().upper()
-        hide_delay_ms = self._clamp_hide_delay(self.hide_delay_var.get())
-
-        if not host:
-            raise ValueError("OBS Host is required.")
-        if not port_text:
-            raise ValueError("OBS Port is required.")
-        if not scene_item_name:
-            raise ValueError("Overlay Source is required.")
-        if not is_valid_show_hotkey(hotkey):
-            raise ValueError(SHOW_KEY_HELP)
-        if toggle_mode:
-            if not is_valid_hide_hotkey(hide_hotkey):
-                raise ValueError(HIDE_KEY_HELP)
-
-        try:
-            port = int(port_text)
-        except ValueError as exc:
-            raise ValueError("OBS Port must be a number.") from exc
-
-        return AppConfig(
-            host=host,
-            port=port,
-            password=password,
-            scene_item_name=scene_item_name,
+        return config_from_form(
+            host=self.host_var.get(),
+            port=self.port_var.get(),
+            password=self.password_var.get(),
+            scene_item_name=self.item_var.get(),
+            hotkey=self.hotkey_var.get(),
+            toggle_mode=self.toggle_mode_var.get(),
+            hide_hotkey=self.hide_hotkey_var.get(),
+            hide_delay_ms=self.hide_delay_var.get(),
             auto_connect=self.auto_connect_var.get(),
             auto_reconnect=self.auto_reconnect_var.get(),
-            hotkey=hotkey,
-            toggle_mode=toggle_mode,
-            hide_hotkey=hide_hotkey,
-            hide_delay_ms=hide_delay_ms,
             log_enabled=self.log_enabled_var.get(),
         )
 
     def save_form_config(self):
         self.reset_confirm_pending = False
         try:
-            cfg = self._read_form()
-            save_config(cfg)
+            self.controller.save(self._read_form())
         except ValueError as exc:
             self._show_notice(str(exc))
-            return
         except OSError as exc:
             self._show_error("Could not save config", plain_reason(exc))
-            return
-        self._apply_config(cfg, "Config saved.")
 
     def reset_defaults(self):
         if not self.reset_confirm_pending:
@@ -792,92 +707,33 @@ class MapHideApp:
             return
 
         self.reset_confirm_pending = False
-        cfg = default_config()
-        self._set_form(cfg)
-        save_config(cfg)
-        self._apply_config(cfg, "Defaults restored.")
-
-    def _apply_config(self, cfg, done_message):
-        self.running_config = cfg
-        self._update_help_text()
-        # The log, not the live status line: a save/reset confirmation isn't
-        # part of the OBS connection's own story, and flashing it there only
-        # to have it revert a moment later is easy to miss entirely.
-        self._add_history_line(human_ts(), done_message)
-        if self.service.is_running:
-            self._restart_service_with_config(cfg)
+        self._set_form(self.controller.restore_defaults())
 
     def start_service(self):
         try:
-            cfg = self._read_form()
-            save_config(cfg)
-            self.service.start(cfg)
+            self.controller.start(self._read_form())
         except ValueError as exc:
             self._show_notice(str(exc))
-            return
         except OSError as exc:
             self._show_error("Could not start MapHide", plain_reason(exc))
-            return
         except RuntimeError as exc:
             self._show_error("Could not start MapHide", str(exc))
-            return
-
-        self._render_status()
-        self._sync_service_buttons()
 
     def stop_service(self):
-        self.service.stop()
-        self._render_status()
+        self.controller.stop()
 
-    def _restart_service_with_config(self, cfg):
-        self.pending_restart_config = cfg
-        if self.restart_pending:
-            return
-        self.restart_pending = True
-        self._sync_service_buttons()
-        self.service.stop()
-        # No ceiling: MapHide keeps running either way, so there is no reason
-        # to give up on the old worker's own shutdown cleanup early and start
-        # a new one on top of it.
-        self._wait_for_service_stop(ceiling_ms=None, on_stopped=self._finish_service_restart)
-
-    def _finish_service_restart(self):
-        cfg = self.pending_restart_config
-        self.restart_pending = False
-        self.pending_restart_config = None
-        try:
-            self.service.start(cfg)
-        except RuntimeError as exc:
-            self._show_notice(str(exc))
+    def _refresh(self):
+        """Redraw everything the controller owns: help text, history, the
+        status line, and which of Start and Stop can be clicked."""
+        self._update_help_text()
+        self._render_history()
         self._render_status()
         self._sync_service_buttons()
-
-    def _wait_for_service_stop(self, ceiling_ms, on_stopped, elapsed_ms=0):
-        """Poll until the worker actually reports stopped, then run on_stopped.
-
-        See stop_wait_should_continue for the cutoff logic this drives -
-        pulled out on its own so the timing decision itself is unit
-        testable without a real Tk loop or a real worker thread.
-        """
-        if stop_wait_should_continue(self.service.is_running, elapsed_ms, ceiling_ms):
-            self.root.after(
-                RESTART_POLL_INTERVAL_MS,
-                lambda: self._wait_for_service_stop(
-                    ceiling_ms, on_stopped, elapsed_ms + RESTART_POLL_INTERVAL_MS
-                ),
-            )
-            return
-        on_stopped()
 
     def _sync_service_buttons(self):
-        # Derived from what the service is doing, not from the event stream. A
-        # restart stops and starts the same service, so its "stopped" event can
-        # arrive after the restart has already finished; acting on that event
-        # switched the buttons back while MapHide was still running.
-        running = self.service.is_running
         wanted = {
-            self.start_button: "disabled" if running or self.restart_pending else "normal",
-            self.stop_button: "normal" if running and not self.restart_pending else "disabled",
+            self.start_button: "normal" if self.controller.can_start else "disabled",
+            self.stop_button: "normal" if self.controller.can_stop else "disabled",
         }
         for button, state in wanted.items():
             if str(button.cget("state")) != state:
@@ -887,34 +743,25 @@ class MapHideApp:
         # Drawn from where the service stands now, not from replaying events,
         # so a late or stale event can never leave the line saying something
         # the connection no longer is.
-        text = status_line(self.service.status, self.restart_pending)
+        text = self.controller.status_text
         if text != self._shown_status:
             self._shown_status = text
             self.status_var.set(text)
 
     def _drain_events(self):
-        while True:
-            try:
-                event = self.service.events.get_nowait()
-            except queue.Empty:
-                break
-
-            if event["history"]:
-                self._add_history_line(event["timestamp"], event["message"])
-
+        if self.controller.drain_events():
+            self._render_history()
         self._render_status()
         self._sync_service_buttons()
         self.root.after(EVENT_DRAIN_INTERVAL_MS, self._drain_events)
 
-    def _add_history_line(self, timestamp, message):
-        self.history_lines.append(f"{timestamp}  {message}")
-        self.history_lines = self.history_lines[-HISTORY_LINE_COUNT:]
-        # Rewritten from scratch each time rather than appended to: the cap
-        # above means an older line can drop off the top, which a Text
-        # widget has no equivalent of "delete the first listbox row" for.
+    def _render_history(self):
+        # Rewritten from scratch each time rather than appended to: the
+        # history is capped, so an older line can drop off the top, which a
+        # Text widget has no equivalent of "delete the first listbox row" for.
         self.history_text.configure(state="normal")
         self.history_text.delete("1.0", tk.END)
-        self.history_text.insert(tk.END, "\n".join(self.history_lines))
+        self.history_text.insert(tk.END, "\n".join(self.controller.history_lines))
         self.history_text.configure(state="disabled")
         self.history_text.see(tk.END)
 
@@ -954,16 +801,7 @@ class MapHideApp:
         if self._notice_job is not None:
             # A notice is showing; the help comes back when it clears.
             return
-        hotkey = self.running_config.hotkey
-        hide_hotkey = self.running_config.hide_hotkey
-        if self.running_config.toggle_mode:
-            self.help_text_var.set(
-                f"Press {hotkey} to show the overlay. Press {hide_hotkey} to hide it."
-            )
-        else:
-            self.help_text_var.set(
-                f"Hold {hotkey} to show the overlay. Release {hotkey} to hide it."
-            )
+        self.help_text_var.set(self.controller.help_text)
 
     def _update_toggle_mode_ui(self):
         toggle_mode = self.toggle_mode_var.get()
@@ -1063,7 +901,7 @@ class MapHideApp:
         return "+".join(labels)
 
     def _update_hide_delay_label(self):
-        self.hide_delay_label_var.set(f"{self._clamp_hide_delay(self.hide_delay_var.get())} ms")
+        self.hide_delay_label_var.set(f"{clamp_hide_delay(self.hide_delay_var.get())} ms")
 
     def _update_password_warning(self):
         # OBS's own WebSocket server decides whether a password is required at
@@ -1099,13 +937,6 @@ class MapHideApp:
         if self._password_tooltip is not None:
             self._password_tooltip.destroy()
             self._password_tooltip = None
-
-    def _clamp_hide_delay(self, value):
-        try:
-            delay = int(float(value))
-        except (TypeError, ValueError):
-            delay = DEFAULT_HIDE_DELAY_MS
-        return clamp(delay, MIN_HIDE_DELAY_MS, MAX_HIDE_DELAY_MS)
 
     def _update_sensitive_visibility(self):
         if hasattr(self, "host_entry"):
@@ -1146,41 +977,21 @@ class MapHideApp:
         self._apply_window_size(self.collapsed_width, self.collapsed_height)
 
     def _setup_tray(self):
-        if pystray is None or Image is None or ImageDraw is None:
+        if not tray_available():
             self._show_notice(
                 "Tray support unavailable. Closing the window will exit the app.",
                 LONG_NOTICE_MS,
             )
             return
 
-        menu = pystray.Menu(
-            pystray.MenuItem("Show", self._on_tray_show, default=True),
-            pystray.MenuItem("Exit", self._on_tray_exit),
+        # The tray calls these on its own thread; root.after hands the work
+        # to Tk's thread before any widget is touched.
+        self.tray_icon = TrayIcon(
+            WINDOW_TITLE,
+            on_show=lambda: self.root.after(0, self._show_window),
+            on_exit=lambda: self.root.after(0, self._begin_exit),
         )
-        self.tray_icon = pystray.Icon(APP_NAME, self._create_tray_image(), WINDOW_TITLE, menu)
-        self.tray_thread = threading.Thread(
-            target=self.tray_icon.run, name="TrayIcon", daemon=True
-        )
-        self.tray_thread.start()
-
-    def _create_tray_image(self):
-        if ICON_TRAY_PNG_PATH.exists():
-            icon_image_path = ICON_TRAY_PNG_PATH
-        else:
-            icon_image_path = ICON_RUNTIME_PNG_PATH
-        if icon_image_path.exists():
-            try:
-                return Image.open(icon_image_path).convert("RGBA")
-            except OSError:
-                pass
-
-        image = Image.new("RGB", TRAY_FALLBACK_SIZE, COLOR_TRAY_BG)
-        draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle((8, 8, 56, 56), radius=12, fill=COLOR_TRAY_TILE)
-        draw.rectangle((18, 18, 46, 26), fill=COLOR_TRAY_MARK)
-        draw.rectangle((18, 30, 34, 46), fill=COLOR_TRAY_MARK)
-        draw.rectangle((38, 30, 46, 46), fill=COLOR_TRAY_MARK)
-        return image
+        self.tray_icon.start()
 
     def _hide_to_tray(self):
         if self.tray_icon is None:
@@ -1190,7 +1001,7 @@ class MapHideApp:
         self.root.withdraw()
 
     def _show_window(self):
-        if self.exit_requested:
+        if self.controller.exit_requested:
             # A tray "Show" click can still land while a just-requested exit
             # is waiting on the worker's shutdown cleanup in the background -
             # nothing to reveal, the window is on its way out either way.
@@ -1205,26 +1016,18 @@ class MapHideApp:
         self.root.after(0, self.root.lift)
         self.root.after(0, self.root.focus_force)
 
-    def _on_tray_show(self, icon=None, item=None):
-        self.root.after(0, self._show_window)
-
-    def _on_tray_exit(self, icon=None, item=None):
-        self.root.after(0, self._begin_exit)
-
     def _begin_exit(self):
         # A second Exit click while the first is still waiting on the worker
         # to stop must not start a second wait chain - _finish_exit destroys
         # the root and stops the tray icon, neither safe to do twice.
-        if self.exit_requested:
+        if self.controller.exit_requested:
             return
         # Withdrawn immediately so quitting feels instant, rather than
         # leaving a visible window that looks frozen while the worker's own
         # shutdown cleanup (which can take longer than a moment if the
         # overlay source lives in several scenes) finishes behind it.
-        self.exit_requested = True
         self.root.withdraw()
-        self.service.stop()
-        self._wait_for_service_stop(EXIT_WAIT_CEILING_MS, self._finish_exit)
+        self.controller.begin_exit(self._finish_exit)
 
     def _finish_exit(self):
         if self.tray_icon is not None:
@@ -1232,7 +1035,7 @@ class MapHideApp:
         self.root.destroy()
 
     def on_close(self):
-        if self.exit_requested:
+        if self.controller.exit_requested:
             return
         self._hide_to_tray()
 
@@ -1243,7 +1046,7 @@ def run_gui():
         print("Run with --headless or install a Python build with Tk support.")
         sys.exit(1)
 
-    set_windows_app_id()
+    set_app_id(APP_USER_MODEL_ID)
     root = tk.Tk()
     MapHideApp(root)
     root.mainloop()

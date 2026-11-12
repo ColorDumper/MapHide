@@ -2,10 +2,12 @@
 
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .hotkeys import (
+    HIDE_KEY_HELP,
     HOTKEY_TO_VK,
+    SHOW_KEY_HELP,
     hotkey_to_vk_codes,
     is_valid_hide_hotkey,
     is_valid_show_hotkey,
@@ -121,6 +123,85 @@ class AppConfig:
 
 def default_config():
     return AppConfig(host="", port=DEFAULT_PORT, password="", scene_item_name="")
+
+
+def clamp_hide_delay(value):
+    """A hide delay from a slider or text field, as a whole number of
+    milliseconds within the allowed range."""
+    try:
+        delay = int(float(value))
+    except (TypeError, ValueError, OverflowError):
+        delay = DEFAULT_HIDE_DELAY_MS
+    return clamp(delay, MIN_HIDE_DELAY_MS, MAX_HIDE_DELAY_MS)
+
+
+def form_ready(cfg):
+    """`cfg` with anything a settings form can't show replaced by its
+    default: an unsupported key name, or a hide delay out of range."""
+    return replace(
+        cfg,
+        hotkey=cfg.hotkey if is_valid_show_hotkey(cfg.hotkey) else DEFAULT_HOTKEY,
+        hide_hotkey=(
+            cfg.hide_hotkey if is_valid_hide_hotkey(cfg.hide_hotkey) else DEFAULT_HIDE_HOTKEY
+        ),
+        hide_delay_ms=clamp_hide_delay(cfg.hide_delay_ms),
+    )
+
+
+def config_from_form(
+    *,
+    host,
+    port,
+    password,
+    scene_item_name,
+    hotkey,
+    toggle_mode,
+    hide_hotkey,
+    hide_delay_ms,
+    auto_connect,
+    auto_reconnect,
+    log_enabled,
+):
+    """Build an AppConfig from what a settings form holds, as typed.
+
+    Raises ValueError with a message fit to show the user when something
+    required is missing or a key or number can't be used.
+    """
+    host = str(host).strip()
+    port_text = str(port).strip()
+    scene_item_name = str(scene_item_name).strip()
+    hotkey = str(hotkey).strip().upper()
+    hide_hotkey = str(hide_hotkey).strip().upper()
+
+    if not host:
+        raise ValueError("OBS Host is required.")
+    if not port_text:
+        raise ValueError("OBS Port is required.")
+    if not scene_item_name:
+        raise ValueError("Overlay Source is required.")
+    if not is_valid_show_hotkey(hotkey):
+        raise ValueError(SHOW_KEY_HELP)
+    if toggle_mode and not is_valid_hide_hotkey(hide_hotkey):
+        raise ValueError(HIDE_KEY_HELP)
+
+    try:
+        port_number = int(port_text)
+    except ValueError as exc:
+        raise ValueError("OBS Port must be a number.") from exc
+
+    return AppConfig(
+        host=host,
+        port=port_number,
+        password=password,
+        scene_item_name=scene_item_name,
+        auto_connect=bool(auto_connect),
+        auto_reconnect=bool(auto_reconnect),
+        hotkey=hotkey,
+        toggle_mode=bool(toggle_mode),
+        hide_hotkey=hide_hotkey,
+        hide_delay_ms=clamp_hide_delay(hide_delay_ms),
+        log_enabled=bool(log_enabled),
+    )
 
 
 def ensure_config_file(path=CONFIG_PATH):

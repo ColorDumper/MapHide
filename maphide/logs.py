@@ -13,7 +13,8 @@ import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from .paths import APP_VERSION, CONFIG_DIR
+from .paths import CONFIG_DIR
+from .version import APP_VERSION, CHANNEL
 
 LOG_PATH = CONFIG_DIR / "maphide-debug.log"
 LOGGER_NAME = "maphide"
@@ -129,5 +130,5 @@ def configure_logging(enabled):
     handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s"))
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
-    logger.info("MapHide %s - logging started", APP_VERSION)
+    logger.info("MapHide %s (%s build) - logging started", APP_VERSION, CHANNEL)
     return None

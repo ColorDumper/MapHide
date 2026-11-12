@@ -246,7 +246,7 @@ This is normal behavior. MapHide hides to the system tray instead of fully closi
 
 ## Version
 
-Current release: `v0.2.6`
+The latest release and its download are on the [Releases page](https://github.com/ColorDumper/MapHide/releases/latest). What changed in each version is in the [changelog](CHANGELOG.md).
 
 ## Credits
 

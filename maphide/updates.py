@@ -224,6 +224,13 @@ class Updater:
     def busy(self):
         return self.state in (CHECKING, DOWNLOADING, INSTALLING)
 
+    @property
+    def can_install_release(self):
+        """Whether the release found can be installed from here: this copy
+        was installed by the setup file, and the release has one MapHide
+        can use. If not, the window sends you to the download page."""
+        return self.can_install and self.release is not None and self.release.setup_url is not None
+
     def _set(self, state, message=""):
         self.state = state
         self.message = message
@@ -288,13 +295,7 @@ class Updater:
         `on_started()`, which should close MapHide. Returns False if there
         is nothing to install or this copy can't install it."""
         release = self.release
-        if (
-            self.busy
-            or self.state not in (AVAILABLE, FAILED)
-            or release is None
-            or release.setup_url is None
-            or not self.can_install
-        ):
+        if self.busy or self.state not in (AVAILABLE, FAILED) or not self.can_install_release:
             return False
 
         def report(fraction):

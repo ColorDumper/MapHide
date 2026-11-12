@@ -408,6 +408,23 @@ def test_check_now_says_when_maphide_is_up_to_date(h):
     assert h.backend.updateState == "latest"
 
 
+def test_an_installed_copy_offers_to_install_a_release_with_a_setup_file(h):
+    h.latest = NEW_RELEASE
+    h.backend.checkForUpdates()
+    h.run_updater()
+
+    assert h.backend.canInstallUpdate is True
+
+
+def test_a_release_without_a_setup_file_sends_you_to_the_download_page(h):
+    h.latest = Release("0.3.0")
+    h.backend.checkForUpdates()
+    h.run_updater()
+
+    assert h.backend.updateState == "available"
+    assert h.backend.canInstallUpdate is False
+
+
 def test_update_runs_the_installer_and_closes_maphide(h):
     h.latest = NEW_RELEASE
     h.backend.checkForUpdates()

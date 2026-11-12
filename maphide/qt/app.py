@@ -285,7 +285,13 @@ class Backend(QObject):
         updater = self.updater
         version = updater.release.version if updater.release else ""
         # Whole percent, so the window redraws only when the number moves.
-        return (updater.state, updater.message, version, round(updater.progress * 100))
+        return (
+            updater.state,
+            updater.message,
+            version,
+            round(updater.progress * 100),
+            updater.can_install_release,
+        )
 
     def _settings_view(self):
         text, warning = source_line(self._source_count())
@@ -516,9 +522,9 @@ class Backend(QObject):
     def updatesShown(self):
         return self._update_checks
 
-    @Property(bool, constant=True)
+    @Property(bool, notify=updateChanged)
     def canInstallUpdate(self):
-        return self.updater.can_install
+        return self._update[4]
 
     @Property(str, constant=True)
     def releasesPage(self):

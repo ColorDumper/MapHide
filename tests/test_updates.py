@@ -400,6 +400,23 @@ def test_nothing_is_installed_when_it_cant_be(steps):
     assert s.downloads == []
 
 
+@pytest.mark.parametrize(
+    ("steps", "installable"),
+    [
+        (lambda: Steps(), True),
+        (lambda: Steps(can_install=False), False),
+        (lambda: Steps(release=Release("0.3.0")), False),
+    ],
+    ids=["installed copy", "unzipped copy", "no setup file"],
+)
+def test_a_found_release_says_whether_it_can_be_installed(steps, installable):
+    s = steps()
+    s.updater.check()
+    s.finish()
+
+    assert s.updater.can_install_release is installable
+
+
 def test_nothing_is_installed_before_a_check_finds_something():
     s = Steps()
 

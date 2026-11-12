@@ -4,6 +4,8 @@ All notable changes to MapHide are documented here.
 
 ## Unreleased
 
+- New app icon: a map with a red X, sharp at every size from the tray to the
+  taskbar.
 - Fixed MapHide lingering in the background for several seconds, without
   hiding the overlay in OBS, when it was closed right after saving settings
   while connected.

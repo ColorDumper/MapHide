@@ -24,6 +24,20 @@ Window {
             activeFocusItem.focus = false
     }
 
+    // A click outside the text field you're typing in ends the typing.
+    function releaseFieldUnlessAt(x, y) {
+        const field = activeFocusItem
+        if (!(field instanceof TextInput))
+            return
+        if (!field.contains(field.mapFromItem(null, x, y)))
+            field.focus = false
+    }
+
+    Connections {
+        target: backend
+        function onWindowPressed(x, y) { win.releaseFieldUnlessAt(x, y) }
+    }
+
     width: 480
     height: 748
     minimumWidth: width

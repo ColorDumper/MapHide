@@ -11,7 +11,6 @@ from dataclasses import asdict
 from PySide6.QtCore import Property, QEvent, QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
-from PySide6.QtQuick import QQuickWindow
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from ..config import config_from_form
@@ -74,6 +73,8 @@ class Backend(QObject):
     lineAdded = Signal(str, str, str)
     # The window should hide now: MapHide is closing.
     hideRequested = Signal()
+    # A mouse press anywhere in the window, at (x, y) - see FieldFocus.
+    windowPressed = Signal(float, float)
     # The settings form's values changed from this side (load, reset).
     formChanged = Signal()
     # Test Link, the cover source line.
@@ -373,24 +374,22 @@ def load_fonts():
 
 
 class FieldFocus(QObject):
-    """Lets a text field give up the keyboard when you click anywhere else
-    in the window, as fields do in other Windows apps. Qt Quick otherwise
-    keeps a field focused until something asks for focus, so a field would
-    go on taking typed keys - your hotkey among them - after you'd clicked
-    away from it."""
+    """Reports every mouse press in the window, before whatever was clicked
+    gets it, so the window can let a text field give up the keyboard when
+    you click anywhere else - as fields do in other Windows apps. Qt Quick
+    otherwise keeps a field focused until something asks for focus, so a
+    field would go on taking typed keys - your hotkey among them - after
+    you'd clicked away from it. Main.qml decides; see releaseFieldUnlessAt."""
 
-    def __init__(self, window):
+    def __init__(self, window, on_press):
         super().__init__(window)
-        self._window = window
+        self._on_press = on_press
         window.installEventFilter(self)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.MouseButtonPress:
-            field = self._window.activeFocusItem()
-            if field is not None and field.inherits("QQuickTextInput"):
-                inside = field.mapFromScene(event.scenePosition())
-                if not field.contains(inside):
-                    field.setFocus(False)
+            position = event.scenePosition()
+            self._on_press(position.x(), position.y())
         # Never swallow the click: whatever was clicked still gets it.
         return False
 
@@ -405,8 +404,8 @@ def build_window(backend):
     engine.load(QUrl.fromLocalFile(str(QML_PATH)))
     roots = engine.rootObjects()
     window = roots[0] if roots else None
-    if isinstance(window, QQuickWindow):
-        window._field_focus = FieldFocus(window)
+    if window is not None:
+        window._field_focus = FieldFocus(window, backend.windowPressed.emit)
     return engine, window, warnings
 
 

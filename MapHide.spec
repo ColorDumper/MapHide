@@ -20,7 +20,9 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # Used only by tools/make_assets.py and the tests, never by the app.
+    # PIL: used only by tools/make_assets.py and the tests, never by the app.
+    # PySide6.QtOpenGL: the window never imports it, and leaving it out keeps
+    # 8 MB out of the download.
     excludes=['tkinter', 'PIL', 'PySide6.QtOpenGL'],
     noarchive=False,
     # -OO on the bundled bytecode: drops asserts and docstrings for a small size

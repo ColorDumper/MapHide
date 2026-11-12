@@ -5,6 +5,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+# The app never imports Qt Quick's Python module (it would bring 8 MB of
+# OpenGL into the download); the tests do, to reach into the window.
+import PySide6.QtQuick  # noqa: E402,F401
 from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QGuiApplication, QMouseEvent  # noqa: E402
 
@@ -93,3 +96,14 @@ def test_hiding_the_window_releases_the_field(window):
     QGuiApplication.processEvents()
 
     assert not field.hasActiveFocus()
+
+
+def test_the_app_does_not_load_qt_opengl():
+    # Importing Qt Quick's Python module would pull OpenGL into the bundle.
+    import subprocess
+    import sys
+
+    code = "import sys, maphide.qt.app; sys.exit('PySide6.QtOpenGL' in sys.modules)"
+    # A fixed command with no outside input.
+    result = subprocess.run([sys.executable, "-c", code], check=False)  # noqa: S603
+    assert result.returncode == 0

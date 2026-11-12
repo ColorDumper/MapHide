@@ -116,7 +116,13 @@ jobs:
           # instead of failing on a user's machine; the windowed build has no
           # stdout, so the exit code is the signal.
           # (Start-Process, not the call operator, so a windowed exe is waited on.)
-          $p = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru -Wait
+          # A crash at startup shows an error dialog that would wait forever,
+          # so give up after a minute.
+          $p = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+          if (-not $p.WaitForExit(60000)) {
+            $p.Kill()
+            throw 'MapHide.exe --selftest did not finish within a minute (likely a startup error dialog)'
+          }
           if ($p.ExitCode -ne 0) { throw "MapHide.exe --selftest exited $($p.ExitCode)" }
 
           # Real run: headless against a dead endpoint. An unreachable OBS is

@@ -10,11 +10,14 @@ from PySide6.QtCore import QObject, QPointF  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 
 from maphide.qt.app import (  # noqa: E402
+    DEFAULT_FRAME_HEIGHT,
     MIN_WINDOW_HEIGHT,
     Backend,
+    ScreenFit,
     build_window,
     fitted_height,
     on_screen_top,
+    set_window_height,
 )
 
 FULL = 748
@@ -66,9 +69,37 @@ def bottom_in_window(item):
     return item.mapToScene(QPointF(0, item.height())).y()
 
 
+def test_the_window_starts_at_its_full_height_and_holds_it(window):
+    assert window.height() == FULL
+    assert window.minimumHeight() == window.maximumHeight() == FULL
+
+
+def test_a_new_height_takes_even_after_the_native_window_exists(window):
+    # The app creates the native window early, to colour its title bar.
+    window.winId()
+
+    set_window_height(window, 600)
+    assert window.height() == 600
+    assert window.minimumHeight() == window.maximumHeight() == 600
+
+    set_window_height(window, FULL)
+    assert window.height() == FULL
+    assert window.minimumHeight() == window.maximumHeight() == FULL
+
+
+def test_the_window_fits_its_screen(window):
+    window.winId()
+    available = window.screen().availableGeometry().height()
+    set_window_height(window, MIN_WINDOW_HEIGHT)
+
+    ScreenFit(window)
+
+    assert window.height() == fitted_height(FULL, available, DEFAULT_FRAME_HEIGHT)
+
+
 @pytest.mark.parametrize("height", [LAPTOP_AVAILABLE - TITLE_BAR, MIN_WINDOW_HEIGHT])
 def test_save_stays_inside_a_shorter_window(window, height):
-    window.setProperty("fitHeight", height)
+    set_window_height(window, height)
     window.setProperty("drawerOpen", True)
     window.show()
     QGuiApplication.processEvents()
@@ -80,7 +111,7 @@ def test_save_stays_inside_a_shorter_window(window, height):
 
 @pytest.mark.parametrize("height", [LAPTOP_AVAILABLE - TITLE_BAR, MIN_WINDOW_HEIGHT])
 def test_the_field_log_shrinks_instead_of_running_off(window, height):
-    window.setProperty("fitHeight", height)
+    set_window_height(window, height)
     window.show()
     QGuiApplication.processEvents()
 

@@ -87,33 +87,68 @@ def on_screen_top(top, height, area_top, area_height):
     return max(area_top, min(top, lowest))
 
 
+def set_window_height(window, height):
+    """Resize the window to `height` and hold it there, so it can't be
+    dragged taller or shorter. The hold is loosened first: Windows keeps a
+    window inside its old limits and would ignore the new height."""
+    window.setMinimumHeight(min(height, window.minimumHeight()))
+    window.setMaximumHeight(max(height, window.maximumHeight()))
+    window.resize(window.width(), height)
+    window.setMinimumHeight(height)
+    window.setMaximumHeight(height)
+
+
 def fit_to_screen(window):
-    """Lower the window's height to what its screen has room for. Call it
-    before the window is first shown."""
-    screen = window.screen()
-    if screen is None:
-        return
-    window.setProperty(
-        "fitHeight",
-        fitted_height(
-            window.property("fullHeight"),
-            screen.availableGeometry().height(),
-            DEFAULT_FRAME_HEIGHT,
-        ),
-    )
-
-
-def keep_on_screen(window):
-    """Move the shown window, title bar included, inside the area above the
-    taskbar if part of it is off."""
+    """Give the window the height its screen has room for, title bar
+    included, and move it inside the area above the taskbar if part of it
+    is off. Safe before the window is shown: it then guesses the title bar."""
     screen = window.screen()
     if screen is None:
         return
     area = screen.availableGeometry()
-    frame = window.frameGeometry()
-    top = on_screen_top(frame.top(), frame.height(), area.top(), area.height())
-    if top != frame.top():
-        window.setFramePosition(frame.topLeft() + QPoint(0, top - frame.top()))
+    margins = window.frameMargins()
+    frame = margins.top() + margins.bottom()
+    if window.isVisible() and frame > 0:
+        frame_height = frame
+    else:
+        frame_height = DEFAULT_FRAME_HEIGHT
+    height = fitted_height(window.property("fullHeight"), area.height(), frame_height)
+    if height != window.height():
+        set_window_height(window, height)
+    if window.isVisible():
+        outer = window.frameGeometry()
+        top = on_screen_top(outer.top(), outer.height(), area.top(), area.height())
+        if top != outer.top():
+            window.setFramePosition(outer.topLeft() + QPoint(0, top - outer.top()))
+
+
+class ScreenFit(QObject):
+    """Fits the window to its screen again whenever that changes: moved to
+    another monitor, a new resolution or scaling, a taller taskbar."""
+
+    def __init__(self, window):
+        super().__init__()
+        self._window = window
+        self._screen = None
+        window.screenChanged.connect(self._on_screen_changed)
+        self._on_screen_changed(window.screen())
+
+    # Connected as this object's own methods, not lambdas, so Qt stops
+    # calling them the moment this object is gone.
+
+    def _on_screen_changed(self, screen):
+        if self._screen is not None and isValid(self._screen):
+            self._screen.availableGeometryChanged.disconnect(self._on_area_changed)
+        self._screen = screen
+        if screen is not None:
+            screen.availableGeometryChanged.connect(self._on_area_changed)
+        self.fit()
+
+    def _on_area_changed(self, _area):
+        self.fit()
+
+    def fit(self):
+        fit_to_screen(self._window)
 
 
 def argb(color, opacity):
@@ -573,6 +608,7 @@ def build_window(backend):
     window = roots[0] if roots else None
     if window is not None:
         window._field_focus = FieldFocus(window, backend.windowPressed.emit)
+        set_window_height(window, window.property("fullHeight"))
     return engine, window, warnings
 
 
@@ -733,9 +769,10 @@ def main():
         backend.notice(NO_TRAY)
     # Shown only now, so it appears with its theme's title bar already set.
     paint_title_bar()
-    fit_to_screen(window)
+    screen_fit = ScreenFit(window)
     window.show()
-    keep_on_screen(window)
+    # Again, now that Windows has said how tall the title bar really is.
+    screen_fit.fit()
     result = app.exec()
     commands.close()
     app.removeNativeEventFilter(session_end)

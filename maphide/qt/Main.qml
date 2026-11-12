@@ -38,18 +38,16 @@ Window {
         function onWindowPressed(x, y) { win.releaseFieldUnlessAt(x, y) }
     }
 
-    // The height the window is designed for. On a screen too short for it,
-    // Python lowers fitHeight: the field log and the Settings list take up
-    // the difference.
+    // The height the window is designed for. Python sets the actual height
+    // and holds it there (see set_window_height): lower on a screen too
+    // short for it, with the field log and the Settings list taking up the
+    // difference.
     readonly property int fullHeight: 748
-    property int fitHeight: fullHeight
 
     width: 480
-    height: fitHeight
+    height: fullHeight
     minimumWidth: width
     maximumWidth: width
-    minimumHeight: height
-    maximumHeight: height
     // Shown from Python once its title bar matches the theme.
     visible: false
     title: "MapHide"

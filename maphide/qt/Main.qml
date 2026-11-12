@@ -11,9 +11,12 @@ Window {
     readonly property color coverRed: "#d9483b"
     readonly property color coverRedText: "#ff7a6b"
     property bool drawerOpen: false
+    // Closing Settings without Save puts the saved settings back: only Save
+    // keeps a change.
     onDrawerOpenChanged: if (!drawerOpen) {
         settings.stopCapture()
         releaseKeyboard()
+        backend.discardChanges()
     }
     onVisibleChanged: if (!visible) releaseKeyboard()
 
@@ -625,6 +628,7 @@ Window {
         // Settings drawer: slides in over the main screen.
         Rectangle {
             id: drawer
+            objectName: "drawer"
             width: 436
             height: parent.height
             // How far open, from 0 (hidden) to 1. The slide animates this,
@@ -640,6 +644,7 @@ Window {
 
             Settings {
                 id: settings
+                objectName: "settings"
                 anchors.fill: parent
                 anchors.leftMargin: 1
                 onCloseRequested: win.drawerOpen = false

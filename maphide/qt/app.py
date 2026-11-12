@@ -365,8 +365,11 @@ class Backend(QObject):
     # What the user does.
 
     def _start(self):
+        # The saved settings, never the form: Start doesn't pick up, or
+        # save, changes Save hasn't kept. Checked as the form would be, so a
+        # missing host gets the same message.
         try:
-            self.controller.start(config_from_form(**self._form))
+            self.controller.start(config_from_form(**form_values(self.controller.running_config)))
         except ValueError as exc:
             self.notice(str(exc))
         except OSError as exc:
@@ -418,6 +421,28 @@ class Backend(QObject):
     @Property("QVariantMap", notify=formChanged)
     def form(self):
         return self._form
+
+    @Property(bool, notify=formChanged)
+    def hasUnsavedChanges(self):
+        """Whether the form holds anything Save hasn't kept. Spaces around a
+        value don't count: Save would drop them."""
+        saved = self.controller.running_config
+        if self._form == form_values(saved):
+            return False
+        try:
+            return config_from_form(**self._form) != saved
+        except ValueError:
+            # Half-typed, so it can't be what's saved.
+            return True
+
+    @Slot()
+    def discardChanges(self):
+        """Settings closed without Save: put the saved settings back, theme
+        included."""
+        if self._form != form_values(self.controller.running_config):
+            self._set_form(self.controller.running_config)
+            self.clearTest()
+            self.refresh()
 
     @Slot(str, "QVariant")
     def setField(self, name, value):
@@ -504,6 +529,8 @@ class Backend(QObject):
         except OSError as exc:
             self.saveFailed.emit(f"Couldn't save settings: {plain_reason(exc)}")
             return
+        # The form now shows exactly what was saved (spaces trimmed, say).
+        self._set_form(self.controller.running_config)
         self.saved.emit()
 
     @Slot()

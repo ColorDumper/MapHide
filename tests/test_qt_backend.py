@@ -107,6 +107,12 @@ def fill_form(backend, **values):
         backend.setField(name, value)
 
 
+def save_form(backend, **values):
+    """Fill the form and press Save: Start runs the saved settings."""
+    fill_form(backend, **values)
+    backend.save()
+
+
 def test_loading_fills_the_form_from_the_saved_settings(h):
     h.load(lambda: make_config(host="10.0.0.9", port=4456))
 
@@ -208,7 +214,7 @@ def test_reset_puts_the_defaults_back_in_the_form(h):
 # Start, stop and the test button.
 
 
-def test_start_with_a_form_that_isnt_ready_says_why_in_the_field_log(h):
+def test_start_with_saved_settings_that_arent_ready_says_why_in_the_field_log(h):
     h.backend.primary()
 
     assert h.service.started_with == []
@@ -216,8 +222,8 @@ def test_start_with_a_form_that_isnt_ready_says_why_in_the_field_log(h):
     assert h.backend.controller.history[-1].code == HISTORY_NOTICE
 
 
-def test_start_runs_the_worker_with_the_form(h):
-    fill_form(h.backend, hotkey="M")
+def test_start_runs_the_worker_with_the_saved_settings(h):
+    save_form(h.backend, hotkey="M")
 
     h.backend.primary()
 
@@ -225,27 +231,89 @@ def test_start_runs_the_worker_with_the_form(h):
     assert h.backend.primaryIsStop
 
 
-def test_start_with_unsaved_changes_says_it_saved_them(h):
-    fill_form(h.backend, hotkey="M")
+def test_start_ignores_and_never_saves_unsaved_changes(h):
+    save_form(h.backend, hotkey="M")
+    h.saved.clear()
+    h.backend.setField("hotkey", "K")
 
     h.backend.primary()
 
-    assert h.saved[-1].hotkey == "M"
-    assert "> settings saved" in [line[1] for line in h.lines]
+    assert h.service.started_with[-1].hotkey == "M"
+    assert h.saved == []
 
 
-def test_start_with_nothing_changed_says_nothing_about_saving(h):
-    fill_form(h.backend)
+# Unsaved changes.
+
+
+def test_closing_settings_puts_the_saved_settings_back(h):
+    save_form(h.backend, hotkey="M")
+    h.backend.setField("host", "192.168.1.50")
+    h.backend.setField("hotkey", "K")
+
+    h.backend.discardChanges()
+
+    assert h.backend.form["host"] == "10.0.0.2"
+    assert h.backend.form["hotkey"] == "M"
+    assert h.backend.hasUnsavedChanges is False
+
+
+def test_closing_settings_puts_the_saved_theme_back(h):
+    save_form(h.backend, theme="field")
+    h.backend.setField("theme", "legacy")
+    assert h.backend.themeName == "legacy"
+
+    h.backend.discardChanges()
+
+    assert h.backend.themeName == "field"
+
+
+def test_a_change_counts_as_unsaved_until_saved(h):
+    save_form(h.backend)
+    assert h.backend.hasUnsavedChanges is False
+
+    h.backend.setField("hide_delay_ms", 650)
+    assert h.backend.hasUnsavedChanges is True
+
     h.backend.save()
-    h.lines.clear()
+    assert h.backend.hasUnsavedChanges is False
 
-    h.backend.primary()
 
-    assert "> settings saved" not in [line[1] for line in h.lines]
+def test_changing_a_field_back_is_not_an_unsaved_change(h):
+    save_form(h.backend)
+
+    h.backend.setField("host", "192.168.1.50")
+    h.backend.setField("host", "10.0.0.2")
+
+    assert h.backend.hasUnsavedChanges is False
+
+
+def test_spaces_around_a_value_are_not_an_unsaved_change(h):
+    save_form(h.backend)
+
+    h.backend.setField("host", "  10.0.0.2 ")
+
+    assert h.backend.hasUnsavedChanges is False
+
+
+def test_a_captured_key_is_an_unsaved_change(h):
+    save_form(h.backend)
+
+    h.backend.captureKey("show", ord("K"), False)
+
+    assert h.backend.hasUnsavedChanges is True
+
+
+def test_reset_leaves_nothing_unsaved(h):
+    save_form(h.backend)
+    h.backend.setField("host", "192.168.1.50")
+
+    h.backend.resetDefaults()
+
+    assert h.backend.hasUnsavedChanges is False
 
 
 def test_stop_stops_the_worker(h):
-    fill_form(h.backend)
+    save_form(h.backend)
     h.backend.primary()
 
     h.backend.primary()
@@ -261,7 +329,7 @@ def test_the_test_button_presses_and_releases(h):
 
 
 def test_a_settings_change_while_running_reads_as_connecting(h):
-    fill_form(h.backend)
+    save_form(h.backend)
     h.backend.primary()
     h.service.status = ServiceStatus(CONNECTED, "Connected to OBS.")
 
@@ -321,7 +389,7 @@ def test_a_renamed_source_forgets_the_old_scene_count(h):
 
 
 def test_closing_hides_the_window_and_quits_once_the_worker_is_done(h):
-    fill_form(h.backend)
+    save_form(h.backend)
     h.backend.primary()
 
     h.backend.requestClose()
@@ -363,7 +431,7 @@ def test_exit_from_the_tray_quits(h):
 
 
 def test_a_session_end_stops_the_worker_and_waits_for_it_here(h):
-    fill_form(h.backend)
+    save_form(h.backend)
     h.backend.primary()
 
     h.backend.end_session(wait_seconds=3)

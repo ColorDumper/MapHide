@@ -155,81 +155,33 @@ def test_loading_replaces_values_the_form_cannot_show(h):
 # Starting and stopping.
 
 
-def test_start_saves_the_settings_then_starts_the_worker_with_them(h):
+def test_start_runs_the_worker_with_the_settings(h):
     cfg = make_config()
 
     h.controller.start(cfg)
 
-    assert h.saved == [cfg]
     assert h.service.started_with == [cfg]
     assert (h.controller.can_start, h.controller.can_stop) == (False, True)
 
 
-def test_start_with_the_settings_just_loaded_does_not_save_them_again(h):
-    cfg, _ = h.controller.load(load=lambda: make_config(hotkey="M"))
+def test_start_never_saves(h):
+    h.controller.load(load=lambda: make_config(hotkey="M"))
 
-    h.controller.start(cfg)
+    h.controller.start(make_config(hotkey="K"))
 
     assert h.saved == []
-    assert h.service.started_with == [cfg]
-
-
-def test_start_with_changed_settings_saves_them_and_says_so(h):
-    h.controller.load(load=lambda: make_config(hotkey="M"))
-    changed = make_config(hotkey="K")
-
-    h.controller.start(changed)
-
-    assert h.saved == [changed]
-    assert [entry.code for entry in h.controller.history] == [HISTORY_SETTINGS_SAVED]
-
-
-def test_start_that_saves_nothing_says_nothing_about_saving(h):
-    cfg, _ = h.controller.load(load=lambda: make_config(hotkey="M"))
-
-    h.controller.start(cfg)
-
     assert h.controller.history == []
 
 
-def test_start_after_a_save_does_not_save_the_same_settings_again(h):
-    cfg = make_config(hotkey="K")
-    h.controller.save(cfg)
-    h.saved.clear()
-
-    h.controller.start(cfg)
-
-    assert h.saved == []
-
-
-def test_start_saves_when_the_file_could_not_be_read(h):
-    def failing_load():
-        raise ValueError("bad")
-
-    cfg, _ = h.controller.load(load=failing_load)
-
-    h.controller.start(cfg)
-
-    assert h.saved == [cfg]
-
-
-def test_start_saves_values_loading_had_to_replace(h):
-    cfg, _ = h.controller.load(load=lambda: make_config(hotkey="?"))
-
-    h.controller.start(cfg)
-
-    assert h.saved == [cfg]
-
-
-def test_start_does_not_run_the_worker_when_saving_fails(h):
+def test_start_works_when_the_settings_file_cant_be_written(h):
     def failing_save(_cfg):
         raise OSError("denied")
 
     controller = AppController(schedule=h.schedule, service=h.service, save=failing_save)
 
-    with pytest.raises(OSError):
-        controller.start(make_config())
-    assert h.service.started_with == []
+    controller.start(make_config())
+
+    assert h.service.started_with == [make_config()]
 
 
 def test_stop_asks_the_worker_to_stop(h):

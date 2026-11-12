@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Shapes
 
 // The settings drawer's contents: numbered sections, then Reset and
-// Save. Edits stay in the form, unapplied, until Save.
+// Save. Edits stay in the form, unapplied, until Save; closing the drawer
+// without Save puts the saved settings back (see Main.qml).
 Item {
     id: settings
 
@@ -697,6 +698,17 @@ Item {
                 visible: settings.footerProblem !== ""
                 text: settings.footerProblem
                 wrapMode: Text.Wrap
+                verticalAlignment: Text.AlignVCenter
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: 12
+                color: settings.t.warn
+            }
+            // Closing Settings without Save puts the saved settings back.
+            Label {
+                objectName: "unsavedNote"
+                anchors.fill: parent
+                visible: backend.hasUnsavedChanges && settings.footerProblem === "" && !settings.savedStamp
+                text: "Unsaved changes"
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignHCenter
                 font.pixelSize: 12

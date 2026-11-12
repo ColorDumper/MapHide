@@ -222,7 +222,21 @@ Window {
                                         }
                                         Mono {
                                             id: value
+                                            objectName: "statusValue" + cell.index
+                                            // Its box, for the tests.
+                                            readonly property Item box: cell
+                                            // Never past its own box. A scene name can be
+                                            // any length, so a long one ends in "…". The
+                                            // link state and mode are short enough to
+                                            // shrink to fit instead. (Qt doesn't shrink
+                                            // text that may also end in "…".)
+                                            readonly property bool isScene: cell.index === 1
+                                            width: cell.width - 24 - (dot.visible ? dot.width + 6 : 0)
                                             font.pixelSize: 13
+                                            fontSizeMode: isScene ? Text.FixedSize : Text.HorizontalFit
+                                            // 11 draws as wide as 12 in this font.
+                                            minimumPixelSize: 10
+                                            elide: isScene ? Text.ElideRight : Text.ElideNone
                                             text: cell.index === 0
                                                 ? ({ stopped: "OFFLINE", connecting: "LINKING" })[win.st] || "ONLINE"
                                                 : cell.index === 1 ? backend.scene : backend.mode

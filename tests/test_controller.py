@@ -524,3 +524,10 @@ def test_a_window_only_change_during_a_restart_is_kept(h):
     h.schedule.run_next()
 
     assert h.service.started_with[-1] == make_config(hotkey="M", theme="legacy")
+
+
+def test_starting_puts_the_started_settings_into_effect(h):
+    h.controller.start(make_config(hotkey="M"))
+
+    assert h.controller.running_config == make_config(hotkey="M")
+    assert h.controller.help_text == "Hold M to show the overlay. Release M to hide it."

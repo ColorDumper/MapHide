@@ -10,6 +10,8 @@ All notable changes to MapHide are documented here.
 - Ticking "Connect on startup", or saving settings without changing anything
   that affects the overlay, no longer briefly drops the OBS connection and
   hides the overlay.
+- Fixed the help line under the log still naming the old keys after
+  changing them and clicking Start without saving first.
 
 ## v0.2.6 - 2026-10-27
 

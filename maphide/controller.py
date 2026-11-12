@@ -215,6 +215,7 @@ class AppController:
         self._save(cfg)
         self.service.start(cfg)
         self._worker_config = cfg
+        self.running_config = cfg
         self._on_change()
 
     def stop(self):

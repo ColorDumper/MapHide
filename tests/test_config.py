@@ -1,6 +1,7 @@
 """Tests for loading, saving, and sanitising the config file."""
 
 import json
+import threading
 
 import pytest
 
@@ -152,6 +153,54 @@ def test_a_save_cut_short_leaves_the_old_settings_intact(tmp_path, monkeypatch):
 
     assert load_config(path) == old
     assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+def test_a_save_waits_out_something_holding_the_file_for_a_moment(tmp_path):
+    # Python opens files without letting them be replaced, as a virus
+    # scanner or backup tool reading the file would.
+    path = tmp_path / "config.json"
+    save_config(default_config(), path)
+    new = AppConfig.from_dict({**default_config().to_dict(), "host": "192.168.1.9"})
+    held = open(path, "rb")  # noqa: SIM115 - closed by the timer below
+    release = threading.Timer(0.2, held.close)
+    release.start()
+    try:
+        save_config(new, path)
+    finally:
+        release.join()
+        held.close()
+
+    assert load_config(path) == new
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+def test_a_file_held_for_good_still_fails_and_keeps_the_old_settings(tmp_path, monkeypatch):
+    path = tmp_path / "config.json"
+    old = AppConfig.from_dict({**default_config().to_dict(), "host": "10.0.0.5"})
+    save_config(old, path)
+    monkeypatch.setattr(config_module, "SAVE_RETRY_SECONDS", 0.01)
+    new = AppConfig.from_dict({**default_config().to_dict(), "host": "192.168.1.9"})
+
+    with open(path, "rb"), pytest.raises(PermissionError):
+        save_config(new, path)
+
+    assert load_config(path) == old
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+def test_only_a_file_in_use_is_retried(tmp_path, monkeypatch):
+    path = tmp_path / "config.json"
+    attempts = []
+
+    def full_disk(source, target):
+        attempts.append(1)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config_module.os, "replace", full_disk)
+
+    with pytest.raises(OSError, match="disk full"):
+        save_config(default_config(), path)
+    assert len(attempts) == 1
 
 
 def test_a_save_leaves_no_temporary_file_behind(tmp_path):

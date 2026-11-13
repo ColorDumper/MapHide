@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import time
 from dataclasses import dataclass, replace
 
 from .hotkeys import (
@@ -24,6 +25,10 @@ MIN_HIDE_DELAY_MS = 0
 MAX_HIDE_DELAY_MS = 400
 MIN_PORT = 1
 MAX_PORT = 65535
+# How long a save keeps trying while another program has the settings file
+# open, and how often.
+SAVE_RETRY_SECONDS = 1.0
+SAVE_RETRY_INTERVAL_SECONDS = 0.05
 # Settings only the window uses. Changing these never needs the worker
 # restarted, so saving them leaves the OBS connection and the overlay alone.
 WINDOW_ONLY_FIELDS = frozenset({"auto_connect", "theme", "check_updates"})
@@ -255,6 +260,21 @@ def load_config(path=CONFIG_PATH):
         return AppConfig.from_dict(json.load(file))
 
 
+def _replace_when_free(source, target):
+    """Swap `source` in for `target`. While another program has `target`
+    open, such as a virus scanner checking it, Windows refuses; that
+    usually lasts a moment, so try again for up to about a second."""
+    deadline = time.monotonic() + SAVE_RETRY_SECONDS
+    while True:
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(SAVE_RETRY_INTERVAL_SECONDS)
+
+
 def save_config(cfg, path=CONFIG_PATH):
     """Write `cfg` to a temporary file next to `path`, then swap it in, so a
     crash or power cut mid-save leaves the old settings, never half a file."""
@@ -265,7 +285,7 @@ def save_config(cfg, path=CONFIG_PATH):
             json.dump(cfg.to_dict(), file, indent=2)
             file.flush()
             os.fsync(file.fileno())
-        os.replace(temporary, path)
+        _replace_when_free(temporary, path)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise

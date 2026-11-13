@@ -228,11 +228,18 @@ def test_a_filled_in_form_becomes_settings():
         ("scene_item_name", "", "Overlay Source is required."),
         ("hotkey", "ESC", "Show key supports A-Z."),
         ("port", "44a5", "OBS Port must be a number."),
+        ("port", "0", "OBS Port must be between 1 and 65535."),
+        ("port", "70000", "OBS Port must be between 1 and 65535."),
     ],
 )
 def test_a_form_with_a_problem_says_what_to_fix(field, value, message):
     with pytest.raises(ValueError, match=message):
         config_from_form(**{**FORM, field: value})
+
+
+@pytest.mark.parametrize("port", ["1", "65535"])
+def test_the_lowest_and_highest_ports_are_accepted(port):
+    assert config_from_form(**{**FORM, "port": port}).port == int(port)
 
 
 def test_toggle_mode_needs_a_usable_hide_key():

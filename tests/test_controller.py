@@ -520,6 +520,14 @@ def test_a_connection_check_with_an_unusable_port_says_so_without_trying(h):
     assert controller.checking_connection is False
 
 
+def test_test_link_refuses_a_port_out_of_range_without_trying(h):
+    controller = AppController(schedule=h.schedule, service=h.service, check=None)
+
+    with pytest.raises(ValueError, match="between 1 and 65535"):
+        controller.check_connection("10.0.0.2", "70000", "", "", lambda _result: None)
+    assert controller.checking_connection is False
+
+
 def test_only_one_connection_check_runs_at_a_time(h):
     release = threading.Event()
 

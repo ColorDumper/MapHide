@@ -65,6 +65,8 @@ All notable changes to MapHide are documented here.
   or MapHide goes to the tray, so they never stay shown on stream.
 - Fixed MapHide only saying it stopped, when you pressed Stop while it was
   reconnecting and the overlay might still be showing in OBS.
+- Fixed Settings accepting an OBS port outside 1 to 65535, which could never
+  connect. It now says the port must be in that range.
 
 ## v0.2.6 - 2026-10-27
 

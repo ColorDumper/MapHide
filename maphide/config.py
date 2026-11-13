@@ -172,7 +172,7 @@ def connection_from_form(host, port):
     """The OBS host and port from a settings form, as typed: (host, port).
 
     Raises ValueError with a message fit to show the user when either is
-    missing or the port isn't a number.
+    missing, or the port isn't a number from MIN_PORT to MAX_PORT.
     """
     host = str(host).strip()
     port_text = str(port).strip()
@@ -181,9 +181,12 @@ def connection_from_form(host, port):
     if not port_text:
         raise ValueError("OBS Port is required.")
     try:
-        return host, int(port_text)
+        port_number = int(port_text)
     except ValueError as exc:
         raise ValueError("OBS Port must be a number.") from exc
+    if not MIN_PORT <= port_number <= MAX_PORT:
+        raise ValueError(f"OBS Port must be between {MIN_PORT} and {MAX_PORT}.")
+    return host, port_number
 
 
 def config_from_form(

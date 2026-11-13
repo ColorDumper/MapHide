@@ -9,8 +9,8 @@ import pytest
 pytest.importorskip("PySide6")
 
 import PySide6.QtQuick  # noqa: E402,F401
-from PySide6.QtCore import QEvent, QObject, Qt  # noqa: E402
-from PySide6.QtGui import QGuiApplication, QKeyEvent  # noqa: E402
+from PySide6.QtCore import QEvent, QObject, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QGuiApplication, QKeyEvent, QMouseEvent  # noqa: E402
 from test_controller import FakeService  # noqa: E402
 
 from maphide.overlay import CONNECTED, RECONNECTING, ServiceStatus  # noqa: E402
@@ -252,3 +252,51 @@ def test_hiding_maphide_to_the_tray_hides_them_too(setup):
     QGuiApplication.processEvents()
 
     assert [field.property("revealed") for field in fields] == [False, False, False]
+
+
+# Dragging the hide delay slider.
+
+
+def hide_delay_slider(window):
+    pending = [window.contentItem()]
+    while pending:
+        item = pending.pop(0)
+        if item.property("fraction") is not None and item.property("step") is not None:
+            return item
+        pending.extend(item.childItems())
+    raise AssertionError("no slider")
+
+
+def test_dragging_the_slider_off_course_never_scrolls_the_list(setup):
+    backend, window = setup
+    scroller = window.findChild(QObject, "settingsScroller")
+    slider = hide_delay_slider(window)
+    # Bring the slider into view, with room to drift up.
+    scroller.setProperty("contentY", 0)
+    QGuiApplication.processEvents()
+    top = slider.mapToItem(scroller, QPointF(0, 0)).y()
+    scroller.setProperty("contentY", max(0, top - scroller.height() / 2))
+    QGuiApplication.processEvents()
+    scrolled_to = scroller.property("contentY")
+    before = backend.form["hide_delay_ms"]
+
+    start = slider.mapToScene(QPointF(slider.width() * 0.3, slider.height() / 2))
+    left, none = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    keys = Qt.KeyboardModifier.NoModifier
+    QGuiApplication.sendEvent(
+        window, QMouseEvent(QEvent.Type.MouseButtonPress, start, start, left, left, keys)
+    )
+    # Along the slider, drifting well up: the list would take that over.
+    for step in range(1, 21):
+        point = QPointF(start.x() + step * 6, start.y() - step * 8)
+        QGuiApplication.sendEvent(
+            window, QMouseEvent(QEvent.Type.MouseMove, point, point, left, left, keys)
+        )
+        QGuiApplication.processEvents()
+    QGuiApplication.sendEvent(
+        window, QMouseEvent(QEvent.Type.MouseButtonRelease, point, point, left, none, keys)
+    )
+    QGuiApplication.processEvents()
+
+    assert scroller.property("contentY") == scrolled_to
+    assert backend.form["hide_delay_ms"] > before

@@ -56,6 +56,10 @@ class Harness:
                 "download": lambda release, folder, progress: "setup.exe",
                 "launch": self.installers.append,
                 "can_install": True,
+                # Never the real download folder.
+                "folder": "downloads",
+                "verify": lambda path, sha256: None,
+                "clean": lambda folder: None,
             },
             service=self.service,
             save=self.saved.append,

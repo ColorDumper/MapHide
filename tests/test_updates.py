@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import urllib.error
+import urllib.request
 
 import pytest
 from test_controller import ManualScheduler
@@ -20,6 +21,8 @@ from maphide.updates import (
     Release,
     UpdateError,
     Updater,
+    check_setup,
+    clean_downloads,
     download_setup,
     fetch_latest,
     installed_by_setup,
@@ -199,6 +202,102 @@ def test_only_this_projects_releases_are_downloaded(tmp_path):
         download_setup(release, tmp_path, opener=opener_returning(SETUP_BYTES))
 
 
+def test_a_download_bigger_than_github_said_is_stopped(tmp_path):
+    release = Release("0.3.0", SETUP_URL, 100, SETUP_SHA)
+
+    with pytest.raises(UpdateError, match="damaged"):
+        download_setup(release, tmp_path, opener=opener_returning(SETUP_BYTES))
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_redirect_away_from_https_is_refused():
+    request = urllib.request.Request(SETUP_URL)
+
+    with pytest.raises(urllib.error.HTTPError):
+        updates.HttpsOnlyRedirects().redirect_request(
+            request, None, 302, "Found", {}, "http://example.com/setup.exe"
+        )
+
+
+def test_a_redirect_that_stays_on_https_is_followed():
+    request = urllib.request.Request(SETUP_URL)
+
+    followed = updates.HttpsOnlyRedirects().redirect_request(
+        request, None, 302, "Found", {}, "https://objects.githubusercontent.com/setup.exe"
+    )
+
+    assert followed.full_url == "https://objects.githubusercontent.com/setup.exe"
+
+
+def test_maphide_goes_online_only_through_the_https_only_redirects():
+    handlers = updates.OPENER.handlers
+
+    assert any(isinstance(handler, updates.HttpsOnlyRedirects) for handler in handlers)
+
+
+def test_the_setup_file_is_checked_again_just_before_it_runs(tmp_path):
+    path = tmp_path / "MapHide-v0.3.0-setup.exe"
+    path.write_bytes(SETUP_BYTES)
+    check_setup(path, SETUP_SHA)
+
+    path.write_bytes(b"swapped after downloading")
+
+    with pytest.raises(UpdateError, match="damaged"):
+        check_setup(path, SETUP_SHA)
+
+
+def test_old_downloads_are_cleaned_up(tmp_path):
+    (tmp_path / "MapHide-v0.2.7-setup.exe").write_bytes(b"old")
+    (tmp_path / "MapHide-v0.3.0-setup.part").write_bytes(b"cut short")
+    (tmp_path / "something-else.txt").write_text("not ours")
+
+    clean_downloads(tmp_path)
+
+    assert [p.name for p in tmp_path.iterdir()] == ["something-else.txt"]
+
+
+def test_cleaning_up_skips_a_file_still_in_use(tmp_path, monkeypatch):
+    (tmp_path / "MapHide-v0.2.7-setup.exe").write_bytes(b"still running")
+
+    def in_use(self, missing_ok=False):
+        raise PermissionError("in use")
+
+    monkeypatch.setattr(updates.Path, "unlink", in_use)
+
+    clean_downloads(tmp_path)
+
+
+def test_cleaning_up_with_no_download_folder_is_fine(tmp_path):
+    clean_downloads(tmp_path / "never-made")
+
+
+def test_the_installer_starts_without_maphides_own_dll_folder(tmp_path):
+    calls = []
+
+    launch_installer(
+        tmp_path / "setup.exe",
+        lambda args, **_: calls.append("start"),
+        frozen=True,
+        reset_dll_folder=lambda: calls.append("reset"),
+    )
+
+    assert calls == ["reset", "start"]
+
+
+def test_run_from_source_the_dll_folder_is_left_alone(tmp_path):
+    calls = []
+
+    launch_installer(
+        tmp_path / "setup.exe",
+        lambda args, **_: calls.append("start"),
+        frozen=False,
+        reset_dll_folder=lambda: calls.append("reset"),
+    )
+
+    assert calls == ["start"]
+
+
 def test_the_installer_runs_with_progress_only_and_reopens_maphide(tmp_path):
     launched = []
 
@@ -238,6 +337,9 @@ class Steps:
         self.downloads = []
         self.launched = []
         self.download_error = None
+        self.verify_error = None
+        self.verified = []
+        self.cleaned = []
         self.release = release or release_from_json(release_json())
         self.error = error
         self.updater = Updater(
@@ -249,7 +351,14 @@ class Steps:
             launch=self.launched.append,
             can_install=can_install,
             folder="downloads",
+            verify=self._verify,
+            clean=self.cleaned.append,
         )
+
+    def _verify(self, path, sha256):
+        if self.verify_error:
+            raise UpdateError(self.verify_error)
+        self.verified.append((path, sha256))
 
     def _changed(self):
         self.changes += 1
@@ -415,6 +524,42 @@ def test_a_found_release_says_whether_it_can_be_installed(steps, installable):
     s.finish()
 
     assert s.updater.can_install_release is installable
+
+
+def test_the_setup_file_is_checked_again_between_download_and_launch():
+    s = Steps()
+    s.updater.check()
+    s.finish()
+
+    s.updater.install(on_started=lambda: None)
+    s.finish()
+
+    assert s.verified == [("setup.exe", s.release.setup_sha256)]
+    assert s.launched == ["setup.exe"]
+
+
+def test_a_setup_file_changed_after_download_is_not_run():
+    s = Steps()
+    s.updater.check()
+    s.finish()
+    s.verify_error = updates.DOWNLOAD_DAMAGED
+    closed = []
+
+    s.updater.install(on_started=lambda: closed.append(True))
+    s.finish()
+
+    assert (s.updater.state, s.updater.message) == (FAILED, updates.DOWNLOAD_DAMAGED)
+    assert s.launched == []
+    assert closed == []
+
+
+def test_a_check_clears_out_old_downloads():
+    s = Steps()
+
+    s.updater.check()
+    s.finish()
+
+    assert s.cleaned == ["downloads"]
 
 
 def test_nothing_is_installed_before_a_check_finds_something():

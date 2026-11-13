@@ -10,10 +10,13 @@ from maphide.controller import (
 from maphide.fieldlog import COVERED, LINKED, PLAIN, WARNING, FieldLine, field_line
 from maphide.obs import (
     OBS_BAD_PASSWORD,
+    OBS_BAD_REPLY,
     OBS_LINK_LOST,
     OBS_OVERLAY_MAY_REMAIN,
+    OBS_READ_REFUSED,
     OBS_SETTINGS_WRONG,
     OBS_UNREACHABLE,
+    OBS_WRITE_REFUSED,
 )
 from maphide.overlay import (
     EVENT_CONNECT_FAILED,
@@ -111,6 +114,11 @@ def test_each_entry_gets_its_field_log_wording(code, message, subject, text, ton
         (OBS_BAD_PASSWORD, "wrong password"),
         (OBS_UNREACHABLE, "obs not answering"),
         (OBS_SETTINGS_WRONG, "check host and port"),
+        (OBS_READ_REFUSED, "obs refused a request"),
+        (OBS_WRITE_REFUSED, "obs refused a change"),
+        (OBS_BAD_REPLY, "unreadable reply from obs"),
+        (OBS_LINK_LOST, "link lost"),
+        ("Something MapHide has no words for.", "obs error"),
     ],
 )
 def test_a_failed_connection_says_why(message, reason):

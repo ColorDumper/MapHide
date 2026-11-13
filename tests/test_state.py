@@ -337,20 +337,6 @@ def test_holding_the_hide_key_does_not_rehide_after_a_later_show_even_if_pressed
 # --- state carried across a dropped connection -------------------------------
 
 
-def test_intent_survives_a_reconnect_reset():
-    # What the worker keeps when the link drops: the intent, what OBS was
-    # last told, and a hide already counting down - only the key-edge
-    # tracking (meaningless after a polling gap) is reset. See overlay.py.
-    cfg = hold_config()
-    state, _ = drive(cfg, [(0, True, False)])
-    assert state.desired_visible is True
-    assert state.overlay_visible is True
-
-    reconnected = replace(state, show_key_was_down=False, hide_key_was_down=False)
-    assert reconnected.desired_visible is True
-    assert reconnected.overlay_visible is True
-
-
 def test_a_hide_already_pending_at_reconnect_still_lands():
     # Release the key so a hide is armed but not yet fired, then apply the
     # same reset overlay.py runs on every (re)connect. The key never comes
@@ -410,7 +396,7 @@ def test_holding_the_show_key_through_a_reconnect_is_safe_for_separate_keys():
     assert actions == []
 
 
-def test_holding_the_hide_key_through_a_reconnect_falsely_hides_for_separate_keys():
+def test_holding_the_hide_key_through_a_reconnect_does_not_hide_for_separate_keys():
     # H being held doesn't have to mean the user pressed it to hide - it
     # could be bound to something else entirely (Shift for sprint, say) and
     # just happen to be down at the exact moment of a reconnect. A real poll

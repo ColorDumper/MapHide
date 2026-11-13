@@ -133,6 +133,37 @@ def test_settings_that_cant_be_read_are_reported_in_the_field_log(h):
     assert h.lines[-1][1].startswith("> Settings couldn't be read")
 
 
+def run_scheduled(h):
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+
+def test_connect_on_startup_starts_maphide_with_the_saved_settings(h):
+    h.load(lambda: make_config(host="10.0.0.9", auto_connect=True, check_updates=False))
+    assert h.service.started_with == []
+
+    run_scheduled(h)
+
+    assert [cfg.host for cfg in h.service.started_with] == ["10.0.0.9"]
+
+
+def test_connect_on_startup_ignores_an_edit_made_before_it_starts(h):
+    h.load(lambda: make_config(host="10.0.0.9", auto_connect=True, check_updates=False))
+    fill_form(h.backend, host="10.0.0.5")
+
+    run_scheduled(h)
+
+    assert [cfg.host for cfg in h.service.started_with] == ["10.0.0.9"]
+
+
+def test_maphide_waits_for_start_when_connect_on_startup_is_off(h):
+    h.load(lambda: make_config(auto_connect=False, check_updates=False))
+
+    run_scheduled(h)
+
+    assert h.service.started_with == []
+
+
 # The settings form.
 
 

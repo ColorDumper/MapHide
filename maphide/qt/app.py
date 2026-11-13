@@ -244,7 +244,7 @@ class Backend(QObject):
         self.refresh()
         self._poll_timer.start()
         if cfg.auto_connect:
-            QTimer.singleShot(AUTO_CONNECT_DELAY_MS, self._start)
+            self._schedule(AUTO_CONNECT_DELAY_MS, self._start)
         if cfg.check_updates and self._update_checks:
             self._schedule(UPDATE_CHECK_DELAY_MS, self._check_quietly)
 

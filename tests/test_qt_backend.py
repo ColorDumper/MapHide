@@ -511,6 +511,32 @@ def test_no_check_at_startup_when_it_is_turned_off(h):
     assert h.backend.updateState == "idle"
 
 
+def test_old_downloads_are_cleared_out_even_with_checks_turned_off():
+    cleaned = []
+    harness = Harness()
+    harness.backend.updater._clean = cleaned.append
+    harness.load(lambda: make_config(check_updates=False))
+    assert cleaned == []
+
+    run_scheduled(harness)
+    harness.backend.updater.tidy_thread.join(timeout=5)
+
+    assert cleaned == ["downloads"]
+
+
+def test_a_store_copy_leaves_the_download_folder_alone():
+    cleaned = []
+    harness = Harness()
+    harness.backend._update_checks = False
+    harness.backend.updater._clean = cleaned.append
+    harness.load(lambda: make_config(check_updates=False))
+
+    run_scheduled(harness)
+
+    assert harness.backend.updater.tidy_thread is None
+    assert cleaned == []
+
+
 def test_a_store_copy_never_checks():
     harness = Harness()
     harness.backend._update_checks = False

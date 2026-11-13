@@ -195,11 +195,16 @@ jobs:
           $p = Start-Process "$app\MapHide.exe" '--selftest' -PassThru
           if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Installed MapHide.exe --selftest timed out' }
           if ($p.ExitCode -ne 0) { throw "Installed MapHide.exe --selftest exited $($p.ExitCode)" }
+          # A download left from an update, which uninstalling removes.
+          $downloads = Join-Path $env:TEMP 'MapHide-update'
+          New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+          Set-Content -Path "$downloads\MapHide-v9.9.9-setup.exe" -Value 'leftover'
           $p = Start-Process "$app\unins000.exe" '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru -Wait
           if ($p.ExitCode -ne 0) { throw "Uninstall exited $($p.ExitCode)" }
           # The uninstaller removes its own copy a moment after it exits.
           Start-Sleep -Seconds 3
           if (Test-Path "$app\MapHide.exe") { throw 'Uninstall left MapHide.exe behind' }
+          if (Test-Path $downloads) { throw 'Uninstall left the update downloads behind' }
 
       - name: Upload build artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -83,6 +83,7 @@ Filename: "{app}\MapHide.exe"; Flags: nowait; Check: RelaunchRequested
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\_internal"
+Type: filesandordirs; Name: "{%TEMP}\MapHide-update"
 
 [Code]
 var

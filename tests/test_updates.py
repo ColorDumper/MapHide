@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -611,6 +612,47 @@ def test_a_check_clears_out_old_downloads():
     s.finish()
 
     assert s.cleaned == ["downloads"]
+
+
+def test_old_downloads_are_cleared_out_without_a_check():
+    s = Steps()
+
+    s.updater.tidy()
+    s.updater.tidy_thread.join(timeout=5)
+
+    assert s.cleaned == ["downloads"]
+    assert s.updater.state == IDLE
+    assert s.changes == 0
+
+
+def test_clearing_out_leaves_a_download_under_way_alone():
+    s = Steps()
+    s.updater.check()
+    s.finish()
+    s.cleaned.clear()
+    s.updater.install(on_started=lambda: None)
+
+    s.updater.tidy()
+
+    assert s.updater.tidy_thread is None
+    assert s.cleaned == []
+    s.finish()
+
+
+def test_a_cleanup_that_goes_wrong_is_ignored(monkeypatch):
+    crashes = []
+    monkeypatch.setattr(threading, "excepthook", crashes.append)
+    s = Steps()
+
+    def broken(folder):
+        raise RuntimeError("unexpected")
+
+    s.updater._clean = broken
+    s.updater.tidy()
+    s.updater.tidy_thread.join(timeout=5)
+
+    assert crashes == []
+    assert s.updater.state == IDLE
 
 
 def test_nothing_is_installed_before_a_check_finds_something():

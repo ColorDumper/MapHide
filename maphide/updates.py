@@ -300,6 +300,22 @@ class Updater:
         self.release = None
         self.progress = 0.0
         self.thread = None
+        self.tidy_thread = None
+
+    def tidy(self):
+        """Delete earlier downloads, off the window's thread, for when
+        MapHide opens without checking. A check does this itself."""
+        if self.busy:
+            return
+
+        def run():
+            try:
+                self._clean(self._folder)
+            except Exception:  # noqa: S110 - a leftover file can wait
+                pass
+
+        self.tidy_thread = threading.Thread(target=run, name="UpdaterTidy", daemon=True)
+        self.tidy_thread.start()
 
     @property
     def busy(self):

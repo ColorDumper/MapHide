@@ -4,6 +4,7 @@ from maphide.controller import (
     HISTORY_DEFAULTS_RESTORED,
     HISTORY_NOTICE,
     HISTORY_SETTINGS_SAVED,
+    SUBJECT_RELINKING,
     HistoryEntry,
 )
 from maphide.fieldlog import COVERED, LINKED, PLAIN, WARNING, FieldLine, field_line
@@ -89,6 +90,13 @@ def line(code, message="", subject=None):
             WARNING,
         ),
         (HISTORY_SETTINGS_SAVED, "Config saved.", None, "> settings saved", PLAIN),
+        (
+            HISTORY_SETTINGS_SAVED,
+            "Config saved.",
+            SUBJECT_RELINKING,
+            "> settings saved · relinking",
+            PLAIN,
+        ),
         (HISTORY_DEFAULTS_RESTORED, "Defaults restored.", None, "> defaults restored", PLAIN),
         (HISTORY_NOTICE, "OBS Host is required.", None, "> OBS Host is required.", WARNING),
     ],

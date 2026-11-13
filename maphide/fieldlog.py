@@ -13,6 +13,7 @@ from .controller import (
     HISTORY_NOTICE,
     HISTORY_SETTINGS_SAVED,
     HISTORY_UPDATE_AVAILABLE,
+    SUBJECT_RELINKING,
 )
 from .obs import OBS_BAD_PASSWORD, OBS_LINK_LOST, OBS_OVERLAY_MAY_REMAIN, OBS_UNREACHABLE
 from .overlay import (
@@ -93,6 +94,8 @@ def _wording(entry):
     if code == EVENT_LOG_FAILED:
         return "> debug log couldn't start", WARNING
     if code == HISTORY_SETTINGS_SAVED:
+        if entry.subject == SUBJECT_RELINKING:
+            return "> settings saved · relinking", PLAIN
         return "> settings saved", PLAIN
     if code == HISTORY_DEFAULTS_RESTORED:
         return "> defaults restored", PLAIN

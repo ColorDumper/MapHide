@@ -14,14 +14,21 @@ from maphide.controller import (
     HISTORY_LINE_COUNT,
     HISTORY_SETTINGS_SAVED,
     RESTART_POLL_INTERVAL_MS,
+    SUBJECT_RELINKING,
     AppController,
     HistoryEntry,
 )
 from maphide.obs import ConnectionCheck
 from maphide.overlay import (
     CONNECTED,
+    EVENT_CONNECT_FAILED,
+    EVENT_CONNECTED,
+    EVENT_CONNECTING,
+    EVENT_OVERLAY_HIDDEN,
     EVENT_SCENE,
+    EVENT_STOPPED,
     STOPPED,
+    STOPPED_MESSAGE,
     STOPPING,
     ObsSnapshot,
     ServiceStatus,
@@ -586,3 +593,117 @@ def test_starting_puts_the_started_settings_into_effect(h):
     h.controller.start(make_config(hotkey="M"))
 
     assert h.controller.running_config == make_config(hotkey="M")
+
+
+# Saving while connected: a quiet reconnect in the history.
+
+
+def connected_in(h, scene="Gameplay"):
+    h.controller.start(make_config())
+    h.service.status = ServiceStatus(CONNECTED, "Connected to OBS.")
+    h.service.snapshot = ObsSnapshot(scene=scene)
+
+
+def relink(h, *events):
+    """The old worker finishes stopping, the new one starts and reports
+    `events` as (code, message, subject)."""
+    h.service.emit(STOPPED_MESSAGE, code=EVENT_STOPPED)
+    h.service.finish_stopping()
+    while h.schedule.pending:
+        h.schedule.run_next()
+    for code, message, subject in events:
+        h.service.emit(message, code=code, subject=subject)
+    h.controller.drain_events()
+
+
+def lines(h):
+    return [(entry.code, entry.subject) for entry in h.controller.history]
+
+
+def test_saving_while_connected_shows_one_saved_line_then_link_up(h):
+    connected_in(h)
+
+    h.controller.save(make_config(hotkey="M"))
+    relink(
+        h,
+        (EVENT_CONNECTING, "Connecting to OBS...", None),
+        (EVENT_CONNECTED, "Connected to OBS.", None),
+        (EVENT_SCENE, "Live scene: Gameplay", "Gameplay"),
+    )
+
+    assert lines(h) == [(HISTORY_SETTINGS_SAVED, SUBJECT_RELINKING), (EVENT_CONNECTED, None)]
+
+
+def test_a_scene_that_changed_meanwhile_is_still_shown(h):
+    connected_in(h)
+
+    h.controller.save(make_config(hotkey="M"))
+    relink(
+        h,
+        (EVENT_CONNECTING, "Connecting to OBS...", None),
+        (EVENT_CONNECTED, "Connected to OBS.", None),
+        (EVENT_SCENE, "Live scene: Camera", "Camera"),
+    )
+
+    assert lines(h)[-1] == (EVENT_SCENE, "Camera")
+
+
+def test_a_problem_while_relinking_is_always_shown(h):
+    connected_in(h)
+
+    h.controller.save(make_config(hotkey="M"))
+    relink(
+        h,
+        (EVENT_CONNECTING, "Connecting to OBS...", None),
+        (EVENT_CONNECT_FAILED, "Failed to connect to OBS.", None),
+        (EVENT_CONNECTING, "Connecting to OBS...", None),
+    )
+
+    # Quiet ends at the problem: the retry after it is shown too.
+    assert lines(h) == [
+        (HISTORY_SETTINGS_SAVED, SUBJECT_RELINKING),
+        (EVENT_CONNECT_FAILED, None),
+        (EVENT_CONNECTING, None),
+    ]
+
+
+def test_other_news_while_relinking_is_shown(h):
+    connected_in(h)
+
+    h.controller.save(make_config(hotkey="M"))
+    h.service.emit("Overlay hidden.", code=EVENT_OVERLAY_HIDDEN)
+    relink(h, (EVENT_CONNECTED, "Connected to OBS.", None))
+
+    assert (EVENT_OVERLAY_HIDDEN, None) in lines(h)
+
+
+def test_once_relinked_the_history_is_back_to_normal(h):
+    connected_in(h)
+    h.controller.save(make_config(hotkey="M"))
+    relink(
+        h,
+        (EVENT_CONNECTED, "Connected to OBS.", None),
+        (EVENT_SCENE, "Live scene: Gameplay", "Gameplay"),
+    )
+
+    h.controller.stop()
+    h.service.emit(STOPPED_MESSAGE, code=EVENT_STOPPED)
+    h.controller.drain_events()
+
+    assert lines(h)[-1] == (EVENT_STOPPED, None)
+
+
+def test_saving_while_stopped_is_a_plain_saved_line(h):
+    h.controller.save(make_config(hotkey="M"))
+
+    assert lines(h) == [(HISTORY_SETTINGS_SAVED, None)]
+
+
+def test_reset_during_a_relink_still_shows_the_stop(h):
+    connected_in(h)
+    h.controller.save(make_config(hotkey="M"))
+
+    h.controller.restore_defaults()
+    relink(h)
+
+    assert lines(h)[-1] == (EVENT_STOPPED, None)

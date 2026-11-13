@@ -15,10 +15,16 @@ Window {
     // keeps a change.
     onDrawerOpenChanged: if (!drawerOpen) {
         settings.stopCapture()
+        settings.maskSecrets()
         releaseKeyboard()
         backend.discardChanges()
     }
-    onVisibleChanged: if (!visible) releaseKeyboard()
+    // Hidden to the tray, Settings may still be open: hide Host, Port and
+    // Password anyway.
+    onVisibleChanged: if (!visible) {
+        settings.maskSecrets()
+        releaseKeyboard()
+    }
 
     // Takes the keyboard back from whichever text field has it, so keys
     // pressed afterwards don't type into a field you can no longer see.

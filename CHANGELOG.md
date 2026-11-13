@@ -61,6 +61,8 @@ All notable changes to MapHide are documented here.
   running, while an earlier "already running" message was still open.
 - Fixed MapHide starting again when you saved settings right after pressing
   Stop.
+- Changed Host, Port and Password to hide again whenever you close Settings
+  or MapHide goes to the tray, so they never stay shown on stream.
 
 ## v0.2.6 - 2026-10-27
 

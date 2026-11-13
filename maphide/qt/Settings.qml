@@ -20,6 +20,14 @@ Item {
 
     function stopCapture() { capturing = "" }
 
+    // Host, Port and Password back to hidden, so a reveal never outlasts
+    // the moment you wanted it: on stream, the next look would show them.
+    function maskSecrets() {
+        hostField.revealed = false
+        portField.revealed = false
+        passwordField.revealed = false
+    }
+
     function startCapture(target) {
         capturing = capturing === target ? "" : target
         keyProblem = ""
@@ -180,6 +188,7 @@ Item {
                     width: parent.width
                     spacing: 8
                     Field {
+                        id: hostField
                         width: (parent.width - 8) * 2 / 3
                         label: "HOST"
                         secret: true
@@ -187,6 +196,7 @@ Item {
                         onEdited: (text) => backend.setField("host", text)
                     }
                     Field {
+                        id: portField
                         width: (parent.width - 8) / 3
                         label: "PORT"
                         secret: true
@@ -196,6 +206,7 @@ Item {
                     }
                 }
                 Field {
+                    id: passwordField
                     width: parent.width
                     label: "PASSWORD"
                     secret: true

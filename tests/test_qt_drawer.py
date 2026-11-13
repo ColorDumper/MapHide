@@ -211,3 +211,44 @@ def test_the_reset_warning_shows_instead_of_the_unsaved_note(setup, service):
 
     assert reset_warning(window).property("visible")
     assert not unsaved_note(window).property("visible")
+
+
+# Host, Port and Password go back to hidden.
+
+
+def secret_fields(window):
+    found, pending = [], [window.contentItem()]
+    while pending:
+        item = pending.pop(0)
+        if item.property("secret") is True:
+            found.append(item)
+        pending.extend(item.childItems())
+    return found
+
+
+def reveal_all(window):
+    fields = secret_fields(window)
+    assert len(fields) == 3
+    for field in fields:
+        field.setProperty("revealed", True)
+    QGuiApplication.processEvents()
+    return fields
+
+
+def test_closing_settings_hides_host_port_and_password_again(setup):
+    backend, window = setup
+    fields = reveal_all(window)
+
+    close_settings(window)
+
+    assert [field.property("revealed") for field in fields] == [False, False, False]
+
+
+def test_hiding_maphide_to_the_tray_hides_them_too(setup):
+    backend, window = setup
+    fields = reveal_all(window)
+
+    window.hide()
+    QGuiApplication.processEvents()
+
+    assert [field.property("revealed") for field in fields] == [False, False, False]

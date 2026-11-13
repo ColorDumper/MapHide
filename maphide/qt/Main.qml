@@ -8,6 +8,8 @@ Window {
     readonly property var t: backend.theme
     readonly property string st: backend.screen
     readonly property bool running: backend.primaryIsStop
+    // The red X and the COVERED stamp are part of the logo, not the theme,
+    // so they stay the same whichever theme is chosen.
     readonly property color coverRed: "#d9483b"
     readonly property color coverRedText: "#ff7a6b"
     property bool drawerOpen: false
@@ -72,11 +74,9 @@ Window {
     function em(size, amount) { return size * amount }
 
     Item {
-        id: stage
         anchors.fill: parent
 
         Item {
-            id: main
             anchors.fill: parent
             transformOrigin: Item.Left
             scale: win.drawerOpen ? 0.965 : 1
@@ -204,7 +204,6 @@ Window {
                                     Condensed {
                                         text: ["OBS LINK", "LIVE SCENE", "MODE"][cell.index]
                                         font.pixelSize: 12
-                                        font.weight: Font.Normal
                                         font.letterSpacing: win.em(12, 0.14)
                                         color: win.t.muted
                                     }
@@ -558,7 +557,6 @@ Window {
                         y: 10
                         text: "FIELD LOG"
                         font.pixelSize: 13
-                        font.weight: Font.Normal
                         font.letterSpacing: win.em(13, 0.16)
                         color: win.t.muted
                     }
@@ -722,7 +720,6 @@ Window {
 
         // Settings drawer: slides in over the main screen.
         Rectangle {
-            id: drawer
             objectName: "drawer"
             width: 436
             height: parent.height

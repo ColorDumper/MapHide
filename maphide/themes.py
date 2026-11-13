@@ -7,11 +7,6 @@ THEMES - nothing else needs to know about it.
 
 from dataclasses import dataclass
 
-# The red X and the COVERED stamp are part of the logo, not the theme, so
-# they stay the same whichever theme is chosen.
-COVER_RED = "#d9483b"
-COVER_RED_TEXT = "#ff7a6b"
-
 
 @dataclass(frozen=True)
 class Theme:

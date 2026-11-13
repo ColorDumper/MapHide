@@ -57,6 +57,9 @@ AUTO_CONNECT_DELAY_MS = 250
 UPDATE_CHECK_DELAY_MS = 3000
 CONFIG_NOT_LOADED = "Settings couldn't be read, so the defaults are in use."
 NO_TRAY = "No notification area, so closing the window will exit MapHide."
+NO_COMMANDS = "Opening MapHide again can't bring this window forward."
+# The most a second launch's command can take before its line break.
+MAX_COMMAND_BYTES = 256
 # How long to wait, when Windows is signing out or shutting down, for the
 # worker to hide the overlay. Windows gives an app about five seconds before
 # ending it regardless.
@@ -724,6 +727,10 @@ class CommandServer(QObject):
             handler = self._handlers.get(line)
             if handler is not None:
                 handler()
+        # A command is one short word. Whatever sends this much without a
+        # line break isn't MapHide, so stop holding what it sends.
+        if connection.bytesAvailable() > MAX_COMMAND_BYTES:
+            connection.abort()
 
     def close(self):
         self._server.close()
@@ -804,6 +811,10 @@ def main():
     backend.load()
     if tray is None:
         backend.notice(NO_TRAY)
+    if not commands.listening:
+        # A second launch then can't reach this one, and shows the "already
+        # running" notice after a few seconds instead.
+        backend.notice(NO_COMMANDS)
     # Shown only now, so it appears with its theme's title bar already set.
     paint_title_bar()
     screen_fit = ScreenFit(window)

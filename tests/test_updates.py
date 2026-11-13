@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -305,6 +306,56 @@ def test_the_installer_runs_with_progress_only_and_reopens_maphide(tmp_path):
 
     assert launched == [[str(tmp_path / "setup.exe"), *updates.INSTALLER_ARGUMENTS]]
     assert "/SILENT" in launched[0] and "/RELAUNCH=1" in launched[0]
+
+
+def test_the_installer_and_the_maphide_it_reopens_start_clean(tmp_path, monkeypatch):
+    # The packaged app's own settings for its files must not reach the
+    # installer, nor through it the --quit and the reopened MapHide.
+    monkeypatch.setenv("_PYI_APPLICATION_HOME_DIR", r"C:\old\_internal")
+    monkeypatch.setenv("_PYI_ARCHIVE_FILE", r"C:\old\MapHide.exe")
+    monkeypatch.setenv("MAPHIDE_TEST_KEEP", "kept")
+    started = []
+
+    launch_installer(tmp_path / "setup.exe", lambda args, **options: started.append(options))
+
+    env = started[0]["env"]
+    assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+    assert not [name for name in env if name.upper().startswith("_PYI_")]
+    assert env["MAPHIDE_TEST_KEEP"] == "kept"
+
+
+def test_the_installer_starts_in_its_own_folder(tmp_path):
+    started = []
+
+    launch_installer(tmp_path / "setup.exe", lambda args, **options: started.append(options))
+
+    assert started[0]["cwd"] == str(tmp_path)
+
+
+def test_a_real_installer_gets_the_clean_start(tmp_path, monkeypatch):
+    # A stand-in installer that writes down what it was started with.
+    monkeypatch.setenv("_PYI_ARCHIVE_FILE", r"C:\old\MapHide.exe")
+    seen = tmp_path / "seen.txt"
+    setup = tmp_path / "setup.cmd"
+    setup.write_text(
+        f'@echo %CD%^|%PYINSTALLER_RESET_ENVIRONMENT%^|%_PYI_ARCHIVE_FILE%> "{seen}"\r\n',
+        encoding="ascii",
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    launch_installer(setup, frozen=False)
+
+    for _ in range(100):
+        if seen.exists() and seen.read_text(encoding="ascii").strip():
+            break
+        time.sleep(0.05)
+    folder, reset, archive = seen.read_text(encoding="ascii").strip().split("|")
+    assert folder == str(tmp_path)
+    assert reset == "1"
+    # Empty: in a batch file, an unset variable expands to nothing.
+    assert archive == ""
 
 
 def test_an_installer_that_wont_start_is_explained(tmp_path):

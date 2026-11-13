@@ -10,6 +10,7 @@ results come back through the `schedule` callable, as in the controller.
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -214,6 +215,18 @@ def _reset_dll_folder():
     ctypes.windll.kernel32.SetDllDirectoryW(None)
 
 
+def _installer_environment():
+    # The packaged app keeps notes for itself in _PYI_ variables, which
+    # programs it starts would inherit: the installer, and through it the
+    # MapHide it reopens. Left out, and PyInstaller told to start afresh, so
+    # the new version finds its own files.
+    env = {
+        name: value for name, value in os.environ.items() if not name.upper().startswith("_PYI_")
+    }
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def launch_installer(
     path, popen=subprocess.Popen, frozen=None, reset_dll_folder=_reset_dll_folder
 ):
@@ -222,8 +235,14 @@ def launch_installer(
     frozen = getattr(sys, "frozen", False) if frozen is None else frozen
     if frozen:
         reset_dll_folder()
+    path = Path(path)
     try:
-        popen([str(path), *INSTALLER_ARGUMENTS], close_fds=True)
+        popen(
+            [str(path), *INSTALLER_ARGUMENTS],
+            close_fds=True,
+            env=_installer_environment(),
+            cwd=str(path.parent),
+        )
     except OSError as exc:
         raise UpdateError(INSTALLER_DIDNT_START) from exc
 

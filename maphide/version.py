@@ -9,7 +9,7 @@ import re
 
 from .paths import APP_DIR
 
-VERSION = "0.2.6"
+VERSION = "0.3.0"
 APP_VERSION = f"v{VERSION}"
 
 # Where a packaged copy came from. The build writes one of these into

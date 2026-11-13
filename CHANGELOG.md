@@ -31,7 +31,8 @@ All notable changes to MapHide are documented here.
 - Changed the empty-password warning to text next to the Password field
   instead of an icon.
 - Changed the debug log option to a switch under Behavior in Settings.
-- Changed the download size to about 35 MB, because of the new window.
+- Changed the download size to about 27 MB for the installer, or 35 MB for the
+  zip, because of the new window.
 - Added Enter and Esc as ways to finish typing in a text field.
 - Changed launching MapHide while it's already running to bring the open
   window to the front, even from the tray, instead of showing a notice.

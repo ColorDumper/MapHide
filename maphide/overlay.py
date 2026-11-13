@@ -194,7 +194,7 @@ def recheck_missing_source(client, scene_items, scene_name, source_name):
 
 def scene_status(scene_name, is_first_detection=False):
     # No hotkey/mode explanation here: the window shows that on its own, and
-    # repeating it made this line far too long for the space.
+    # this line has to fit a narrow space.
     verb = "New scene detected" if is_first_detection else "Switched to scene"
     return f"{verb}: {scene_name}."
 

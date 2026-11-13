@@ -13,8 +13,18 @@ from .controller import (
     HISTORY_NOTICE,
     HISTORY_SETTINGS_SAVED,
     HISTORY_UPDATE_AVAILABLE,
+    SUBJECT_RELINKING,
 )
-from .obs import OBS_BAD_PASSWORD, OBS_LINK_LOST, OBS_OVERLAY_MAY_REMAIN, OBS_UNREACHABLE
+from .obs import (
+    OBS_BAD_PASSWORD,
+    OBS_BAD_REPLY,
+    OBS_LINK_LOST,
+    OBS_OVERLAY_MAY_REMAIN,
+    OBS_READ_REFUSED,
+    OBS_SETTINGS_WRONG,
+    OBS_UNREACHABLE,
+    OBS_WRITE_REFUSED,
+)
 from .overlay import (
     EVENT_CONNECT_FAILED,
     EVENT_CONNECTED,
@@ -42,7 +52,11 @@ WARNING = "warning"
 _FAILURE_REASONS = {
     OBS_BAD_PASSWORD: "wrong password",
     OBS_UNREACHABLE: "obs not answering",
+    OBS_SETTINGS_WRONG: "check host and port",
     OBS_LINK_LOST: "link lost",
+    OBS_READ_REFUSED: "obs refused a request",
+    OBS_WRITE_REFUSED: "obs refused a change",
+    OBS_BAD_REPLY: "unreadable reply from obs",
 }
 
 
@@ -56,7 +70,8 @@ class FieldLine:
 def _reason(message):
     if message.startswith("MapHide stopped after an unexpected error"):
         return "unexpected error"
-    return _FAILURE_REASONS.get(message, "check host and port")
+    # Not a guess at the cause: the debug log has the full message.
+    return _FAILURE_REASONS.get(message, "obs error")
 
 
 def _wording(entry):
@@ -93,6 +108,8 @@ def _wording(entry):
     if code == EVENT_LOG_FAILED:
         return "> debug log couldn't start", WARNING
     if code == HISTORY_SETTINGS_SAVED:
+        if entry.subject == SUBJECT_RELINKING:
+            return "> settings saved · relinking", PLAIN
         return "> settings saved", PLAIN
     if code == HISTORY_DEFAULTS_RESTORED:
         return "> defaults restored", PLAIN

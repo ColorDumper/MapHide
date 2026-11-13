@@ -2,7 +2,7 @@
 only the active scene while every other known scene still converges to the
 same value shortly after.
 
-Two scenarios get a dedicated regression test:
+Two scenarios get a dedicated test:
 - a key blip landing on the same poll as a detected scene switch must not
   leak into what gets written to OBS, and
 - a scene that isn't currently active must be caught up in the background
@@ -380,10 +380,9 @@ def test_the_active_config_is_logged_at_startup_without_the_password_or_address(
 
 
 def test_a_mid_session_drop_updates_the_status_immediately(monkeypatch):
-    # Regression: the status line must reflect a lost OBS connection right
-    # away. Leaving the reconnect countdown to say so instead means the line
-    # can go on showing "Connected to OBS." for up to a full RECONNECT_TICK
-    # after the link has actually died.
+    # The status line reflects a lost OBS connection right away. Leaving the
+    # reconnect countdown to say so would let the line go on showing
+    # "Connected to OBS." for up to a full RECONNECT_TICK after the link died.
     connect_attempts = []
 
     def fake_connect(host, port, password):
@@ -427,7 +426,7 @@ def test_a_mid_session_drop_updates_the_status_immediately(monkeypatch):
 def test_overlay_available_does_not_go_stale_once_the_only_carrying_scene_is_dropped(
     monkeypatch,
 ):
-    # Regression: catch_up_one_stale_scene can drop the one background scene
+    # catch_up_one_stale_scene can drop the one background scene
     # that actually carries the source (a rejected write - the scene was
     # deleted/renamed in OBS). If overlay_available isn't recomputed
     # afterward, MapHide keeps treating the overlay as available and can log
@@ -472,7 +471,7 @@ def test_overlay_available_does_not_go_stale_once_the_only_carrying_scene_is_dro
 def test_no_overlay_event_is_logged_when_the_active_scene_has_nothing_to_write_to(
     monkeypatch,
 ):
-    # Regression: overlay_available can be True from a source that only
+    # overlay_available can be True from a source that only
     # exists in a *different* scene - correctly, since sync_scene keeps that
     # background scene caught up. But sync_scene silently no-ops for the
     # active scene when it has nothing to write to, so logging "Overlay
@@ -553,6 +552,25 @@ def test_seed_key_edge_tracking_seeds_from_a_real_poll(monkeypatch):
     assert calls == [[1], [2]]
     assert seeded.show_key_was_down is True
     assert seeded.hide_key_was_down is False
+
+
+def test_seed_key_edge_tracking_keeps_everything_but_the_key_edges(monkeypatch):
+    # A reconnect keeps the intent, what OBS was last told and a hide still
+    # counting down; only the key edges come from the fresh poll.
+    monkeypatch.setattr(overlay_module, "poll_hotkey", lambda vk_codes: (False, False))
+    cfg = replace(hold_config(), toggle_mode=True)
+    before = OverlayState(
+        desired_visible=False,
+        overlay_visible=True,
+        last_action_time=datetime(2026, 1, 1, 12, 0, 0),
+        hide_requested_at=datetime(2026, 1, 1, 12, 0, 1),
+        show_key_was_down=True,
+        hide_key_was_down=True,
+    )
+
+    seeded = seed_key_edge_tracking(before, cfg, [1], [2])
+
+    assert seeded == replace(before, show_key_was_down=False, hide_key_was_down=False)
 
 
 def test_seed_key_edge_tracking_skips_the_hide_poll_in_hold_mode(monkeypatch):
@@ -738,7 +756,7 @@ def test_scene_status_reports_first_detection_separately():
     assert scene_status("Gameplay", is_first_detection=True) == "New scene detected: Gameplay."
 
 
-# --- regression: a blip during a scene switch must not leak into the write ---
+# --- a blip during a scene switch must not leak into the write --------------
 
 
 def test_a_hold_mode_blip_never_reaches_a_write_for_either_scene():
@@ -780,7 +798,7 @@ def test_a_hold_mode_blip_never_reaches_a_write_for_either_scene():
     assert state.overlay_visible is False
 
 
-# --- regression: a scene must be caught up before you switch back to it -----
+# --- a scene must be caught up before you switch back to it -----------------
 
 
 def test_background_catch_up_fixes_a_stale_scene_before_you_return_to_it():
@@ -823,7 +841,7 @@ def test_background_catch_up_fixes_a_stale_scene_before_you_return_to_it():
     ]
 
 
-# --- regression: adding the source to the active scene needs no switch -----
+# --- adding the source to the active scene needs no switch -----------------
 
 
 def test_source_added_to_the_active_scene_is_picked_up_without_a_switch():
@@ -911,13 +929,6 @@ def test_keeps_waiting_while_running_and_under_the_ceiling():
 def test_stops_the_instant_the_service_reports_not_running():
     assert stop_wait_should_continue(False, 0, CEILING) is False
     assert stop_wait_should_continue(False, CEILING * 10, CEILING) is False
-
-
-def test_a_slow_multi_scene_cleanup_is_not_cut_short():
-    # Still genuinely running after a few seconds, but comfortably inside the
-    # ceiling: it must be waited out.
-    still_running_at_3_seconds = True
-    assert stop_wait_should_continue(still_running_at_3_seconds, 3_000, CEILING) is True
 
 
 def test_stops_once_the_ceiling_is_reached_even_if_still_running():

@@ -22,7 +22,21 @@ from .config import (
     worker_settings_differ,
 )
 from .obs import ConnectionCheck, check_connection
-from .overlay import CONNECTED, MapHideService, human_ts, stop_wait_should_continue
+from .overlay import (
+    CONNECTED,
+    EVENT_CONNECTED,
+    EVENT_CONNECTING,
+    EVENT_OVERLAY_HIDDEN,
+    EVENT_OVERLAY_SHOWN,
+    EVENT_SCENE,
+    EVENT_SOURCE_FOUND,
+    EVENT_STOPPED,
+    STOPPED_MESSAGE,
+    STOPPING,
+    MapHideService,
+    human_ts,
+    stop_wait_should_continue,
+)
 
 HISTORY_LINE_COUNT = 10
 RESTART_POLL_INTERVAL_MS = 50
@@ -43,6 +57,18 @@ HISTORY_UPDATE_AVAILABLE = "update_available"
 # A message the window itself puts in the history, such as a setting it
 # can't use.
 HISTORY_NOTICE = "notice"
+# The `subject` of a settings-saved entry when the save also reconnects to
+# OBS to put the new settings into effect.
+SUBJECT_RELINKING = "relinking"
+# News a settings reconnect still shows, without ending its quiet: the link
+# coming back, and the cover changing meanwhile. Anything else, a problem
+# above all, shows and ends it.
+_NEWS_WHILE_RELINKING = (
+    EVENT_CONNECTED,
+    EVENT_OVERLAY_HIDDEN,
+    EVENT_OVERLAY_SHOWN,
+    EVENT_SOURCE_FOUND,
+)
 
 
 @dataclass(frozen=True)
@@ -92,6 +118,9 @@ class AppController:
         self._pending_restart_config = None
         self.exit_requested = False
         self.history = []
+        # While a save reconnects to OBS: the scene before it, or None when
+        # no reconnect is under way. See _keeps_quiet.
+        self._relinking_from = None
 
     # What the window draws.
 
@@ -179,28 +208,53 @@ class AppController:
 
     def save(self, cfg):
         """Save `cfg` and put it into effect. Raises OSError if it can't be
-        written, in which case nothing changes."""
+        written, in which case nothing changes.
+
+        Only a change the worker would actually see restarts it: a restart
+        briefly drops the OBS link and hides the overlay. A restart already
+        under way always takes the newest settings. A worker you stopped is
+        left to stop, even while it is still finishing."""
         self._save(cfg)
-        self._apply(cfg, "Config saved.", HISTORY_SETTINGS_SAVED)
+        stopping = self.service.status.state == STOPPING
+        relink = self.restart_pending or (
+            self.service.is_running and not stopping and self._worker_needs(cfg)
+        )
+        self.running_config = cfg
+        if relink and self._relinking_from is None:
+            # The reconnect's own routine lines stay out of the history.
+            self._relinking_from = self.snapshot.scene or ""
+        self.add_history(
+            human_ts(),
+            "Config saved.",
+            HISTORY_SETTINGS_SAVED,
+            SUBJECT_RELINKING if relink else None,
+        )
+        if relink:
+            self._restart_service_with(cfg)
+        self._on_change()
 
     def restore_defaults(self):
-        """Save and apply the default settings, and return them."""
+        """Save the default settings, and return them. A running worker is
+        stopped, not restarted: the defaults have no OBS address to connect
+        to."""
         cfg = default_config()
         self._save(cfg)
-        self._apply(cfg, "Defaults restored.", HISTORY_DEFAULTS_RESTORED)
+        self._record(cfg, "Defaults restored.", HISTORY_DEFAULTS_RESTORED)
+        if self.restart_pending:
+            # The restart under way finishes stopping, then starts nothing:
+            # that stop is news again.
+            self._pending_restart_config = None
+            self._relinking_from = None
+        elif self.service.is_running:
+            self.service.stop()
+        self._on_change()
         return cfg
 
-    def _apply(self, cfg, done_message, code):
+    def _record(self, cfg, done_message, code):
         self.running_config = cfg
         # The history, not the live status line: a save confirmation isn't
         # part of the OBS connection's own story.
         self.add_history(human_ts(), done_message, code)
-        # Only restart for a change the worker would actually see: a restart
-        # briefly drops the OBS link and hides the overlay. A restart already
-        # under way always takes the newest settings.
-        if self.restart_pending or (self.service.is_running and self._worker_needs(cfg)):
-            self._restart_service_with(cfg)
-        self._on_change()
 
     def _worker_needs(self, cfg):
         return self._worker_config is None or worker_settings_differ(self._worker_config, cfg)
@@ -208,16 +262,18 @@ class AppController:
     # The worker.
 
     def start(self, cfg):
-        """Save `cfg` and start the worker with it. Raises OSError if the
-        settings can't be saved, RuntimeError if the worker is already
+        """Start the worker with `cfg`, the saved settings. Start never
+        saves: only Save does. Raises RuntimeError if the worker is already
         running."""
-        self._save(cfg)
         self.service.start(cfg)
+        self._relinking_from = None
         self._worker_config = cfg
         self.running_config = cfg
         self._on_change()
 
     def stop(self):
+        # A stop you asked for is news, even mid-reconnect.
+        self._relinking_from = None
         self.service.stop()
         self._on_change()
 
@@ -242,10 +298,15 @@ class AppController:
             # MapHide is closing: a new worker would outlive the exit's own
             # wait and be cut off without hiding the overlay.
             return
+        if cfg is None:
+            # Restore defaults called the restart off.
+            self._on_change()
+            return
         try:
             self.service.start(cfg)
             self._worker_config = cfg
         except RuntimeError as exc:
+            self._relinking_from = None
             self._notify(str(exc))
         self._on_change()
 
@@ -273,11 +334,29 @@ class AppController:
                 event = self.service.events.get_nowait()
             except queue.Empty:
                 return changed
-            if event["history"]:
+            if event["history"] and not self._quiet_while_relinking(event):
                 self.add_history(
                     event["timestamp"], event["message"], event.get("code"), event.get("subject")
                 )
                 changed = True
+
+    def _quiet_while_relinking(self, event):
+        """Whether a reconnect for saved settings leaves `event` out of the
+        history: the old link's plain stop, the new one's "connecting", and
+        the live scene when it hasn't changed. The saved line already says
+        MapHide is relinking."""
+        if self._relinking_from is None:
+            return False
+        code = event.get("code")
+        if code == EVENT_STOPPED and event["message"] == STOPPED_MESSAGE:
+            return True
+        if code == EVENT_CONNECTING:
+            return True
+        if code in _NEWS_WHILE_RELINKING:
+            return False
+        before, self._relinking_from = self._relinking_from, None
+        # The scene ends the reconnect; anything else is news worth seeing.
+        return code == EVENT_SCENE and event.get("subject") == before
 
     def add_history(self, timestamp, message, code=None, subject=None):
         self.history.append(HistoryEntry(timestamp, message, code, subject))
@@ -292,6 +371,7 @@ class AppController:
         if self.exit_requested:
             return False
         self.exit_requested = True
+        self._relinking_from = None
         self.service.stop()
         self._wait_for_service_stop(EXIT_WAIT_CEILING_MS, on_finished)
         return True

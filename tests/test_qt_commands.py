@@ -14,7 +14,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 
 from maphide.qt.app import CommandServer  # noqa: E402
-from maphide.single_instance import send_command  # noqa: E402
+from maphide.single_instance import PIPE_PREFIX, send_command  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -88,3 +88,33 @@ def test_a_copy_that_has_stopped_responding_does_not_hang_the_launch(server):
 
     assert not delivered
     assert time.monotonic() - started < 2
+
+
+def test_a_connection_that_never_ends_its_line_is_dropped(qt_app):
+    received = []
+    name = f"MapHide-Test-{uuid.uuid4().hex}"
+    server = CommandServer(
+        name, on_show=lambda: received.append("show"), on_quit=lambda: received.append("quit")
+    )
+    # Writes far more than a command, with no line break, then holds the
+    # connection open instead of hanging up.
+    code = (
+        "import sys, time; "
+        "pipe = open(sys.argv[1], 'wb', buffering=0); "
+        "pipe.write(b'x' * 5000); time.sleep(5)"
+    )
+    # A fixed command with no outside input.
+    flooder = subprocess.Popen(  # noqa: S603
+        [sys.executable, "-c", code, PIPE_PREFIX + name], cwd=ROOT
+    )
+    try:
+        assert until(lambda: server._connections, seconds=5), "the flooder never connected"
+        assert until(lambda: not server._connections, seconds=3)
+        assert flooder.poll() is None, "dropped only because the sender gave up"
+        assert received == []
+
+        assert send("show", name)
+        assert until(lambda: received == ["show"])
+    finally:
+        flooder.kill()
+        server.close()

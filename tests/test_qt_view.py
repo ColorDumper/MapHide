@@ -27,6 +27,8 @@ from maphide.qt.view import (
     COVERING_HINT,
     QT_KEY_ESCAPE,
     QT_KEY_SHIFT,
+    RESET_DISCONNECTS,
+    RESET_STOPS,
     SCREEN_CONNECTED,
     SCREEN_CONNECTING,
     SCREEN_COVERING,
@@ -163,6 +165,39 @@ def test_stopping_reads_as_offline_but_cant_be_started_yet():
     assert view.hint == STOPPING_HINT
     assert not view.primary_is_stop
     assert not view.primary_enabled
+
+
+# What Reset warns about, once clicked.
+
+
+@pytest.mark.parametrize(
+    ("ctrl", "warning"),
+    [
+        (controller(), ""),
+        (controller(STOPPED, "Failed to connect to OBS."), ""),
+        (controller(STOPPING, "Stopping..."), ""),
+        (controller(CONNECTING, "Connecting to OBS..."), RESET_STOPS),
+        (controller(RECONNECTING, "Reconnecting... 2s"), RESET_STOPS),
+        (controller(STOPPING, "Stopping...", restart_pending=True), RESET_STOPS),
+        (controller(CONNECTED, "Connected to OBS."), RESET_DISCONNECTS),
+        (
+            controller(CONNECTED, "Connected to OBS.", ObsSnapshot(covered=True)),
+            RESET_DISCONNECTS,
+        ),
+    ],
+    ids=[
+        "never started",
+        "stopped after a failure",
+        "stopping",
+        "connecting",
+        "reconnecting",
+        "applying settings",
+        "connected",
+        "covering",
+    ],
+)
+def test_reset_warns_when_it_would_stop_maphide(ctrl, warning):
+    assert main_view(ctrl).reset_warning == warning
 
 
 # The field log's catch-up.

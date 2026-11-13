@@ -1,9 +1,11 @@
 """Tests for loading, saving, and sanitising the config file."""
 
 import json
+import threading
 
 import pytest
 
+from maphide import config as config_module
 from maphide.config import (
     DEFAULT_HIDE_DELAY_MS,
     MAX_HIDE_DELAY_MS,
@@ -133,6 +135,83 @@ def test_save_then_load_round_trips(tmp_path):
     assert load_config(path) == cfg
 
 
+def test_a_save_cut_short_leaves_the_old_settings_intact(tmp_path, monkeypatch):
+    path = tmp_path / "config.json"
+    old = AppConfig.from_dict({**default_config().to_dict(), "host": "10.0.0.5"})
+    save_config(old, path)
+
+    def dump_then_fail(data, file, **_options):
+        file.write('{"host": "10.0.')
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config_module.json, "dump", dump_then_fail)
+    new = AppConfig.from_dict({**default_config().to_dict(), "host": "192.168.1.9"})
+
+    with pytest.raises(OSError):
+        save_config(new, path)
+    monkeypatch.undo()
+
+    assert load_config(path) == old
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+def test_a_save_waits_out_something_holding_the_file_for_a_moment(tmp_path):
+    # Python opens files without letting them be replaced, as a virus
+    # scanner or backup tool reading the file would.
+    path = tmp_path / "config.json"
+    save_config(default_config(), path)
+    new = AppConfig.from_dict({**default_config().to_dict(), "host": "192.168.1.9"})
+    held = open(path, "rb")  # noqa: SIM115 - closed by the timer below
+    release = threading.Timer(0.2, held.close)
+    release.start()
+    try:
+        save_config(new, path)
+    finally:
+        release.join()
+        held.close()
+
+    assert load_config(path) == new
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+def test_a_file_held_for_good_still_fails_and_keeps_the_old_settings(tmp_path, monkeypatch):
+    path = tmp_path / "config.json"
+    old = AppConfig.from_dict({**default_config().to_dict(), "host": "10.0.0.5"})
+    save_config(old, path)
+    monkeypatch.setattr(config_module, "SAVE_RETRY_SECONDS", 0.01)
+    new = AppConfig.from_dict({**default_config().to_dict(), "host": "192.168.1.9"})
+
+    with open(path, "rb"), pytest.raises(PermissionError):
+        save_config(new, path)
+
+    assert load_config(path) == old
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+def test_only_a_file_in_use_is_retried(tmp_path, monkeypatch):
+    path = tmp_path / "config.json"
+    attempts = []
+
+    def full_disk(source, target):
+        attempts.append(1)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config_module.os, "replace", full_disk)
+
+    with pytest.raises(OSError, match="disk full"):
+        save_config(default_config(), path)
+    assert len(attempts) == 1
+
+
+def test_a_save_leaves_no_temporary_file_behind(tmp_path):
+    path = tmp_path / "config.json"
+
+    save_config(default_config(), path)
+    save_config(default_config(), path)
+
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
 def test_hand_edited_delay_is_sanitised_on_load(tmp_path):
     path = tmp_path / "config.json"
     path.write_text(json.dumps({**BASE, "hide_delay_ms": 99_999}), encoding="utf-8")
@@ -198,11 +277,18 @@ def test_a_filled_in_form_becomes_settings():
         ("scene_item_name", "", "Overlay Source is required."),
         ("hotkey", "ESC", "Show key supports A-Z."),
         ("port", "44a5", "OBS Port must be a number."),
+        ("port", "0", "OBS Port must be between 1 and 65535."),
+        ("port", "70000", "OBS Port must be between 1 and 65535."),
     ],
 )
 def test_a_form_with_a_problem_says_what_to_fix(field, value, message):
     with pytest.raises(ValueError, match=message):
         config_from_form(**{**FORM, field: value})
+
+
+@pytest.mark.parametrize("port", ["1", "65535"])
+def test_the_lowest_and_highest_ports_are_accepted(port):
+    assert config_from_form(**{**FORM, "port": port}).port == int(port)
 
 
 def test_toggle_mode_needs_a_usable_hide_key():

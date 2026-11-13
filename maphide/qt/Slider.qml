@@ -35,6 +35,9 @@ Item {
     MouseArea {
         anchors.fill: parent
         cursorShape: Qt.PointingHandCursor
+        // A drag that drifts up or down stays on the slider, instead of
+        // turning into scrolling the list it sits in.
+        preventStealing: true
         function pick(x) {
             const fraction = Math.max(0, Math.min(1, x / width))
             const steps = Math.round(fraction * (slider.to - slider.from) / slider.step)

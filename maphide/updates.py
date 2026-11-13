@@ -10,6 +10,7 @@ results come back through the `schedule` callable, as in the controller.
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -30,6 +31,9 @@ DOWNLOAD_PREFIX = f"https://github.com/{REPO}/releases/download/"
 SETUP_NAME = re.compile(r"MapHide-v(\d+\.\d+\.\d+)-setup\.exe")
 TIMEOUT_SECONDS = 20
 CHUNK_BYTES = 64 * 1024
+# A cap for a download whose size GitHub didn't give; the setup file is
+# about 30 MB.
+MAX_SETUP_BYTES = 200 * 1024 * 1024
 POLL_INTERVAL_MS = 100
 # Runs the installer showing only its progress, then reopens MapHide.
 INSTALLER_ARGUMENTS = ("/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/RELAUNCH=1")
@@ -101,6 +105,20 @@ def release_from_json(data):
     return Release(version)
 
 
+class HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only if it stays on https. GitHub sends downloads
+    on to its file servers; a redirect to plain http is refused."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.startswith("https://"):
+            raise urllib.error.HTTPError(newurl, code, "Redirect away from https", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+# How MapHide goes online: https only, redirects included.
+OPENER = urllib.request.build_opener(HttpsOnlyRedirects())
+
+
 def _request(url):
     # Only ever https: the release API above, or a download checked against
     # DOWNLOAD_PREFIX.
@@ -112,7 +130,7 @@ def _request(url):
     )
 
 
-def fetch_latest(opener=urllib.request.urlopen):
+def fetch_latest(opener=OPENER.open):
     """The latest release on GitHub. Raises UpdateError."""
     try:
         with opener(_request(LATEST_RELEASE_API), timeout=TIMEOUT_SECONDS) as reply:
@@ -128,7 +146,7 @@ def fetch_latest(opener=urllib.request.urlopen):
     return release_from_json(data)
 
 
-def download_setup(release, folder, progress=None, opener=urllib.request.urlopen):
+def download_setup(release, folder, progress=None, opener=OPENER.open):
     """Download `release`'s setup file into `folder` and check it against
     GitHub's checksum. `progress(fraction)` is called as it arrives.
     Returns the file's path. Raises UpdateError."""
@@ -144,16 +162,19 @@ def download_setup(release, folder, progress=None, opener=urllib.request.urlopen
         with opener(_request(release.setup_url), timeout=TIMEOUT_SECONDS) as reply:
             with open(partial, "wb") as file:
                 while chunk := reply.read(CHUNK_BYTES):
+                    received += len(chunk)
+                    # Never more than GitHub said the file is.
+                    if received > (release.setup_size or MAX_SETUP_BYTES):
+                        raise UpdateError(DOWNLOAD_DAMAGED)
                     file.write(chunk)
                     digest.update(chunk)
-                    received += len(chunk)
                     if progress is not None and release.setup_size:
                         progress(min(received / release.setup_size, 1.0))
         if digest.hexdigest() != release.setup_sha256:
-            partial.unlink(missing_ok=True)
             raise UpdateError(DOWNLOAD_DAMAGED)
         partial.replace(target)
     except UpdateError:
+        partial.unlink(missing_ok=True)
         raise
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         partial.unlink(missing_ok=True)
@@ -161,11 +182,67 @@ def download_setup(release, folder, progress=None, opener=urllib.request.urlopen
     return target
 
 
-def launch_installer(path, popen=subprocess.Popen):
+def check_setup(path, sha256):
+    """Check the downloaded setup file against GitHub's checksum once more,
+    right before it runs. Raises UpdateError if it changed since."""
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as file:
+            while chunk := file.read(CHUNK_BYTES):
+                digest.update(chunk)
+    except OSError as exc:
+        raise UpdateError(DOWNLOAD_DAMAGED) from exc
+    if digest.hexdigest() != sha256:
+        raise UpdateError(DOWNLOAD_DAMAGED)
+
+
+def clean_downloads(folder):
+    """Delete setup files from earlier updates, and downloads cut short. A
+    file still in use, such as an installer still finishing, stays."""
+    for pattern in ("MapHide-v*-setup.exe", "MapHide-v*-setup.part"):
+        for path in Path(folder).glob(pattern):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def _reset_dll_folder():
+    # The packaged app points Windows at its own DLL folder, and programs it
+    # starts would look there too. The installer should use only its own.
+    import ctypes
+
+    ctypes.windll.kernel32.SetDllDirectoryW(None)
+
+
+def _installer_environment():
+    # The packaged app keeps notes for itself in _PYI_ variables, which
+    # programs it starts would inherit: the installer, and through it the
+    # MapHide it reopens. Left out, and PyInstaller told to start afresh, so
+    # the new version finds its own files.
+    env = {
+        name: value for name, value in os.environ.items() if not name.upper().startswith("_PYI_")
+    }
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
+def launch_installer(
+    path, popen=subprocess.Popen, frozen=None, reset_dll_folder=_reset_dll_folder
+):
     """Start the setup file, which closes MapHide, installs over it and
     reopens it. Raises UpdateError if it can't start."""
+    frozen = getattr(sys, "frozen", False) if frozen is None else frozen
+    if frozen:
+        reset_dll_folder()
+    path = Path(path)
     try:
-        popen([str(path), *INSTALLER_ARGUMENTS], close_fds=True)
+        popen(
+            [str(path), *INSTALLER_ARGUMENTS],
+            close_fds=True,
+            env=_installer_environment(),
+            cwd=str(path.parent),
+        )
     except OSError as exc:
         raise UpdateError(INSTALLER_DIDNT_START) from exc
 
@@ -205,6 +282,8 @@ class Updater:
         launch=launch_installer,
         can_install=None,
         folder=None,
+        verify=check_setup,
+        clean=clean_downloads,
     ):
         self._schedule = schedule
         self._on_change = on_change
@@ -212,6 +291,8 @@ class Updater:
         self._fetch = fetch
         self._download = download
         self._launch = launch
+        self._verify = verify
+        self._clean = clean
         self.can_install = installed_by_setup() if can_install is None else can_install
         self._folder = download_folder() if folder is None else folder
         self.state = IDLE
@@ -219,10 +300,33 @@ class Updater:
         self.release = None
         self.progress = 0.0
         self.thread = None
+        self.tidy_thread = None
+
+    def tidy(self):
+        """Delete earlier downloads, off the window's thread, for when
+        MapHide opens without checking. A check does this itself."""
+        if self.busy:
+            return
+
+        def run():
+            try:
+                self._clean(self._folder)
+            except Exception:  # noqa: S110 - a leftover file can wait
+                pass
+
+        self.tidy_thread = threading.Thread(target=run, name="UpdaterTidy", daemon=True)
+        self.tidy_thread.start()
 
     @property
     def busy(self):
         return self.state in (CHECKING, DOWNLOADING, INSTALLING)
+
+    @property
+    def can_install_release(self):
+        """Whether the release found can be installed from here: this copy
+        was installed by the setup file, and the release has one MapHide
+        can use. If not, the window sends you to the download page."""
+        return self.can_install and self.release is not None and self.release.setup_url is not None
 
     def _set(self, state, message=""):
         self.state = state
@@ -275,7 +379,13 @@ class Updater:
                 self._set(IDLE if quiet else LATEST)
 
         self._set(CHECKING)
-        self._run(self._fetch, done)
+
+        def work():
+            # Off the window's thread, as file access can be slow.
+            self._clean(self._folder)
+            return self._fetch()
+
+        self._run(work, done)
         return True
 
     def clear_latest(self):
@@ -288,13 +398,7 @@ class Updater:
         `on_started()`, which should close MapHide. Returns False if there
         is nothing to install or this copy can't install it."""
         release = self.release
-        if (
-            self.busy
-            or self.state not in (AVAILABLE, FAILED)
-            or release is None
-            or release.setup_url is None
-            or not self.can_install
-        ):
+        if self.busy or self.state not in (AVAILABLE, FAILED) or not self.can_install_release:
             return False
 
         def report(fraction):
@@ -302,6 +406,7 @@ class Updater:
 
         def work():
             path = self._download(release, self._folder, report)
+            self._verify(path, release.setup_sha256)
             self._launch(path)
 
         def done(_result, error):

@@ -14,14 +14,21 @@ from maphide.controller import (
     HISTORY_LINE_COUNT,
     HISTORY_SETTINGS_SAVED,
     RESTART_POLL_INTERVAL_MS,
+    SUBJECT_RELINKING,
     AppController,
     HistoryEntry,
 )
 from maphide.obs import ConnectionCheck
 from maphide.overlay import (
     CONNECTED,
+    EVENT_CONNECT_FAILED,
+    EVENT_CONNECTED,
+    EVENT_CONNECTING,
+    EVENT_OVERLAY_HIDDEN,
     EVENT_SCENE,
+    EVENT_STOPPED,
     STOPPED,
+    STOPPED_MESSAGE,
     STOPPING,
     ObsSnapshot,
     ServiceStatus,
@@ -155,25 +162,33 @@ def test_loading_replaces_values_the_form_cannot_show(h):
 # Starting and stopping.
 
 
-def test_start_saves_the_settings_then_starts_the_worker_with_them(h):
+def test_start_runs_the_worker_with_the_settings(h):
     cfg = make_config()
 
     h.controller.start(cfg)
 
-    assert h.saved == [cfg]
     assert h.service.started_with == [cfg]
     assert (h.controller.can_start, h.controller.can_stop) == (False, True)
 
 
-def test_start_does_not_run_the_worker_when_saving_fails(h):
+def test_start_never_saves(h):
+    h.controller.load(load=lambda: make_config(hotkey="M"))
+
+    h.controller.start(make_config(hotkey="K"))
+
+    assert h.saved == []
+    assert h.controller.history == []
+
+
+def test_start_works_when_the_settings_file_cant_be_written(h):
     def failing_save(_cfg):
         raise OSError("denied")
 
     controller = AppController(schedule=h.schedule, service=h.service, save=failing_save)
 
-    with pytest.raises(OSError):
-        controller.start(make_config())
-    assert h.service.started_with == []
+    controller.start(make_config())
+
+    assert h.service.started_with == [make_config()]
 
 
 def test_stop_asks_the_worker_to_stop(h):
@@ -261,6 +276,48 @@ def test_a_restart_waits_as_long_as_the_old_worker_needs(h):
 
     assert h.controller.restart_pending is True
     assert len(h.schedule.pending) == 1
+
+
+def test_saving_while_maphide_is_stopping_does_not_start_it_again(h):
+    h.controller.start(make_config())
+    h.controller.stop()
+
+    h.controller.save(make_config(hotkey="M"))
+    h.service.finish_stopping()
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+    assert h.service.started_with == [make_config()]
+    assert h.saved[-1] == make_config(hotkey="M")
+    assert h.controller.running_config == make_config(hotkey="M")
+    assert h.controller.can_start is True
+
+
+def test_restoring_defaults_while_running_stops_and_stays_stopped(h):
+    h.controller.start(make_config())
+
+    h.controller.restore_defaults()
+    assert h.service.stop_requests == 1
+    h.service.finish_stopping()
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+    assert h.service.started_with == [make_config()]
+    assert h.controller.can_start is True
+
+
+def test_restoring_defaults_during_a_restart_cancels_it(h):
+    h.controller.start(make_config())
+    h.controller.save(make_config(hotkey="M"))
+
+    h.controller.restore_defaults()
+    h.service.finish_stopping()
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+    assert h.service.started_with == [make_config()]
+    assert h.controller.restart_pending is False
+    assert h.controller.can_start is True
 
 
 def test_a_restart_that_cannot_start_the_new_worker_says_so(h):
@@ -463,6 +520,14 @@ def test_a_connection_check_with_an_unusable_port_says_so_without_trying(h):
     assert controller.checking_connection is False
 
 
+def test_test_link_refuses_a_port_out_of_range_without_trying(h):
+    controller = AppController(schedule=h.schedule, service=h.service, check=None)
+
+    with pytest.raises(ValueError, match="between 1 and 65535"):
+        controller.check_connection("10.0.0.2", "70000", "", "", lambda _result: None)
+    assert controller.checking_connection is False
+
+
 def test_only_one_connection_check_runs_at_a_time(h):
     release = threading.Event()
 
@@ -536,3 +601,117 @@ def test_starting_puts_the_started_settings_into_effect(h):
     h.controller.start(make_config(hotkey="M"))
 
     assert h.controller.running_config == make_config(hotkey="M")
+
+
+# Saving while connected: a quiet reconnect in the history.
+
+
+def connected_in(h, scene="Gameplay"):
+    h.controller.start(make_config())
+    h.service.status = ServiceStatus(CONNECTED, "Connected to OBS.")
+    h.service.snapshot = ObsSnapshot(scene=scene)
+
+
+def relink(h, *events):
+    """The old worker finishes stopping, the new one starts and reports
+    `events` as (code, message, subject)."""
+    h.service.emit(STOPPED_MESSAGE, code=EVENT_STOPPED)
+    h.service.finish_stopping()
+    while h.schedule.pending:
+        h.schedule.run_next()
+    for code, message, subject in events:
+        h.service.emit(message, code=code, subject=subject)
+    h.controller.drain_events()
+
+
+def lines(h):
+    return [(entry.code, entry.subject) for entry in h.controller.history]
+
+
+def test_saving_while_connected_shows_one_saved_line_then_link_up(h):
+    connected_in(h)
+
+    h.controller.save(make_config(hotkey="M"))
+    relink(
+        h,
+        (EVENT_CONNECTING, "Connecting to OBS...", None),
+        (EVENT_CONNECTED, "Connected to OBS.", None),
+        (EVENT_SCENE, "Live scene: Gameplay", "Gameplay"),
+    )
+
+    assert lines(h) == [(HISTORY_SETTINGS_SAVED, SUBJECT_RELINKING), (EVENT_CONNECTED, None)]
+
+
+def test_a_scene_that_changed_meanwhile_is_still_shown(h):
+    connected_in(h)
+
+    h.controller.save(make_config(hotkey="M"))
+    relink(
+        h,
+        (EVENT_CONNECTING, "Connecting to OBS...", None),
+        (EVENT_CONNECTED, "Connected to OBS.", None),
+        (EVENT_SCENE, "Live scene: Camera", "Camera"),
+    )
+
+    assert lines(h)[-1] == (EVENT_SCENE, "Camera")
+
+
+def test_a_problem_while_relinking_is_always_shown(h):
+    connected_in(h)
+
+    h.controller.save(make_config(hotkey="M"))
+    relink(
+        h,
+        (EVENT_CONNECTING, "Connecting to OBS...", None),
+        (EVENT_CONNECT_FAILED, "Failed to connect to OBS.", None),
+        (EVENT_CONNECTING, "Connecting to OBS...", None),
+    )
+
+    # Quiet ends at the problem: the retry after it is shown too.
+    assert lines(h) == [
+        (HISTORY_SETTINGS_SAVED, SUBJECT_RELINKING),
+        (EVENT_CONNECT_FAILED, None),
+        (EVENT_CONNECTING, None),
+    ]
+
+
+def test_other_news_while_relinking_is_shown(h):
+    connected_in(h)
+
+    h.controller.save(make_config(hotkey="M"))
+    h.service.emit("Overlay hidden.", code=EVENT_OVERLAY_HIDDEN)
+    relink(h, (EVENT_CONNECTED, "Connected to OBS.", None))
+
+    assert (EVENT_OVERLAY_HIDDEN, None) in lines(h)
+
+
+def test_once_relinked_the_history_is_back_to_normal(h):
+    connected_in(h)
+    h.controller.save(make_config(hotkey="M"))
+    relink(
+        h,
+        (EVENT_CONNECTED, "Connected to OBS.", None),
+        (EVENT_SCENE, "Live scene: Gameplay", "Gameplay"),
+    )
+
+    h.controller.stop()
+    h.service.emit(STOPPED_MESSAGE, code=EVENT_STOPPED)
+    h.controller.drain_events()
+
+    assert lines(h)[-1] == (EVENT_STOPPED, None)
+
+
+def test_saving_while_stopped_is_a_plain_saved_line(h):
+    h.controller.save(make_config(hotkey="M"))
+
+    assert lines(h) == [(HISTORY_SETTINGS_SAVED, None)]
+
+
+def test_reset_during_a_relink_still_shows_the_stop(h):
+    connected_in(h)
+    h.controller.save(make_config(hotkey="M"))
+
+    h.controller.restore_defaults()
+    relink(h)
+
+    assert lines(h)[-1] == (EVENT_STOPPED, None)

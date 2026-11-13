@@ -31,7 +31,8 @@ All notable changes to MapHide are documented here.
 - Changed the empty-password warning to text next to the Password field
   instead of an icon.
 - Changed the debug log option to a switch under Behavior in Settings.
-- Changed the download size to about 35 MB, because of the new window.
+- Changed the download size to about 27 MB for the installer, or 35 MB for the
+  zip, because of the new window.
 - Added Enter and Esc as ways to finish typing in a text field.
 - Changed launching MapHide while it's already running to bring the open
   window to the front, even from the tray, instead of showing a notice.
@@ -47,6 +48,26 @@ All notable changes to MapHide are documented here.
 - Added a Check for updates switch under Behavior in Settings, on by default,
   which looks for a new version when MapHide opens. The field log says when
   one is out.
+- Fixed your settings being lost if the PC crashed or lost power while
+  MapHide was saving them.
+- Fixed Reset in Settings, while MapHide was running, trying to connect with
+  empty settings and ending on a connection error. Reset now stops MapHide.
+- Changed Settings so only Save keeps a change: closing Settings without
+  Save puts your saved settings back, and Start uses your saved settings
+  instead of saving what's in Settings. Settings shows Unsaved changes while
+  you have any.
+- Added a warning when you click Reset while MapHide is running, saying that
+  Reset disconnects MapHide from OBS.
+- Fixed MapHide refusing to open after it was closed, saying it was already
+  running, while an earlier "already running" message was still open.
+- Fixed MapHide starting again when you saved settings right after pressing
+  Stop.
+- Changed Host, Port and Password to hide again whenever you close Settings
+  or MapHide goes to the tray, so they never stay shown on stream.
+- Fixed MapHide only saying it stopped, when you pressed Stop while it was
+  reconnecting and the overlay might still be showing in OBS.
+- Fixed Settings accepting an OBS port outside 1 to 65535, which could never
+  connect. It now says the port must be in that range.
 
 ## v0.2.6 - 2026-10-27
 

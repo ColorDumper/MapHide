@@ -56,6 +56,10 @@ class Harness:
                 "download": lambda release, folder, progress: "setup.exe",
                 "launch": self.installers.append,
                 "can_install": True,
+                # Never the real download folder.
+                "folder": "downloads",
+                "verify": lambda path, sha256: None,
+                "clean": lambda folder: None,
             },
             service=self.service,
             save=self.saved.append,
@@ -107,6 +111,12 @@ def fill_form(backend, **values):
         backend.setField(name, value)
 
 
+def save_form(backend, **values):
+    """Fill the form and press Save: Start runs the saved settings."""
+    fill_form(backend, **values)
+    backend.save()
+
+
 def test_loading_fills_the_form_from_the_saved_settings(h):
     h.load(lambda: make_config(host="10.0.0.9", port=4456))
 
@@ -121,6 +131,37 @@ def test_settings_that_cant_be_read_are_reported_in_the_field_log(h):
     h.load(broken)
 
     assert h.lines[-1][1].startswith("> Settings couldn't be read")
+
+
+def run_scheduled(h):
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+
+def test_connect_on_startup_starts_maphide_with_the_saved_settings(h):
+    h.load(lambda: make_config(host="10.0.0.9", auto_connect=True, check_updates=False))
+    assert h.service.started_with == []
+
+    run_scheduled(h)
+
+    assert [cfg.host for cfg in h.service.started_with] == ["10.0.0.9"]
+
+
+def test_connect_on_startup_ignores_an_edit_made_before_it_starts(h):
+    h.load(lambda: make_config(host="10.0.0.9", auto_connect=True, check_updates=False))
+    fill_form(h.backend, host="10.0.0.5")
+
+    run_scheduled(h)
+
+    assert [cfg.host for cfg in h.service.started_with] == ["10.0.0.9"]
+
+
+def test_maphide_waits_for_start_when_connect_on_startup_is_off(h):
+    h.load(lambda: make_config(auto_connect=False, check_updates=False))
+
+    run_scheduled(h)
+
+    assert h.service.started_with == []
 
 
 # The settings form.
@@ -208,7 +249,7 @@ def test_reset_puts_the_defaults_back_in_the_form(h):
 # Start, stop and the test button.
 
 
-def test_start_with_a_form_that_isnt_ready_says_why_in_the_field_log(h):
+def test_start_with_saved_settings_that_arent_ready_says_why_in_the_field_log(h):
     h.backend.primary()
 
     assert h.service.started_with == []
@@ -216,8 +257,20 @@ def test_start_with_a_form_that_isnt_ready_says_why_in_the_field_log(h):
     assert h.backend.controller.history[-1].code == HISTORY_NOTICE
 
 
-def test_start_runs_the_worker_with_the_form(h):
-    fill_form(h.backend, hotkey="M")
+def test_start_that_maphide_refuses_says_why_in_the_field_log(h):
+    save_form(h.backend)
+
+    def refuse(cfg):
+        raise RuntimeError("Service is already running.")
+
+    h.service.start = refuse
+    h.backend.primary()
+
+    assert h.lines[-1][1:] == ("> Service is already running.", "warning")
+
+
+def test_start_runs_the_worker_with_the_saved_settings(h):
+    save_form(h.backend, hotkey="M")
 
     h.backend.primary()
 
@@ -225,8 +278,89 @@ def test_start_runs_the_worker_with_the_form(h):
     assert h.backend.primaryIsStop
 
 
+def test_start_ignores_and_never_saves_unsaved_changes(h):
+    save_form(h.backend, hotkey="M")
+    h.saved.clear()
+    h.backend.setField("hotkey", "K")
+
+    h.backend.primary()
+
+    assert h.service.started_with[-1].hotkey == "M"
+    assert h.saved == []
+
+
+# Unsaved changes.
+
+
+def test_closing_settings_puts_the_saved_settings_back(h):
+    save_form(h.backend, hotkey="M")
+    h.backend.setField("host", "192.168.1.50")
+    h.backend.setField("hotkey", "K")
+
+    h.backend.discardChanges()
+
+    assert h.backend.form["host"] == "10.0.0.2"
+    assert h.backend.form["hotkey"] == "M"
+    assert h.backend.hasUnsavedChanges is False
+
+
+def test_closing_settings_puts_the_saved_theme_back(h):
+    save_form(h.backend, theme="field")
+    h.backend.setField("theme", "legacy")
+    assert h.backend.themeName == "legacy"
+
+    h.backend.discardChanges()
+
+    assert h.backend.themeName == "field"
+
+
+def test_a_change_counts_as_unsaved_until_saved(h):
+    save_form(h.backend)
+    assert h.backend.hasUnsavedChanges is False
+
+    h.backend.setField("hide_delay_ms", 650)
+    assert h.backend.hasUnsavedChanges is True
+
+    h.backend.save()
+    assert h.backend.hasUnsavedChanges is False
+
+
+def test_changing_a_field_back_is_not_an_unsaved_change(h):
+    save_form(h.backend)
+
+    h.backend.setField("host", "192.168.1.50")
+    h.backend.setField("host", "10.0.0.2")
+
+    assert h.backend.hasUnsavedChanges is False
+
+
+def test_spaces_around_a_value_are_not_an_unsaved_change(h):
+    save_form(h.backend)
+
+    h.backend.setField("host", "  10.0.0.2 ")
+
+    assert h.backend.hasUnsavedChanges is False
+
+
+def test_a_captured_key_is_an_unsaved_change(h):
+    save_form(h.backend)
+
+    h.backend.captureKey("show", ord("K"), False)
+
+    assert h.backend.hasUnsavedChanges is True
+
+
+def test_reset_leaves_nothing_unsaved(h):
+    save_form(h.backend)
+    h.backend.setField("host", "192.168.1.50")
+
+    h.backend.resetDefaults()
+
+    assert h.backend.hasUnsavedChanges is False
+
+
 def test_stop_stops_the_worker(h):
-    fill_form(h.backend)
+    save_form(h.backend)
     h.backend.primary()
 
     h.backend.primary()
@@ -242,7 +376,7 @@ def test_the_test_button_presses_and_releases(h):
 
 
 def test_a_settings_change_while_running_reads_as_connecting(h):
-    fill_form(h.backend)
+    save_form(h.backend)
     h.backend.primary()
     h.service.status = ServiceStatus(CONNECTED, "Connected to OBS.")
 
@@ -302,7 +436,7 @@ def test_a_renamed_source_forgets_the_old_scene_count(h):
 
 
 def test_closing_hides_the_window_and_quits_once_the_worker_is_done(h):
-    fill_form(h.backend)
+    save_form(h.backend)
     h.backend.primary()
 
     h.backend.requestClose()
@@ -344,7 +478,7 @@ def test_exit_from_the_tray_quits(h):
 
 
 def test_a_session_end_stops_the_worker_and_waits_for_it_here(h):
-    fill_form(h.backend)
+    save_form(h.backend)
     h.backend.primary()
 
     h.backend.end_session(wait_seconds=3)
@@ -389,6 +523,32 @@ def test_no_check_at_startup_when_it_is_turned_off(h):
     assert h.backend.updateState == "idle"
 
 
+def test_old_downloads_are_cleared_out_even_with_checks_turned_off():
+    cleaned = []
+    harness = Harness()
+    harness.backend.updater._clean = cleaned.append
+    harness.load(lambda: make_config(check_updates=False))
+    assert cleaned == []
+
+    run_scheduled(harness)
+    harness.backend.updater.tidy_thread.join(timeout=5)
+
+    assert cleaned == ["downloads"]
+
+
+def test_a_store_copy_leaves_the_download_folder_alone():
+    cleaned = []
+    harness = Harness()
+    harness.backend._update_checks = False
+    harness.backend.updater._clean = cleaned.append
+    harness.load(lambda: make_config(check_updates=False))
+
+    run_scheduled(harness)
+
+    assert harness.backend.updater.tidy_thread is None
+    assert cleaned == []
+
+
 def test_a_store_copy_never_checks():
     harness = Harness()
     harness.backend._update_checks = False
@@ -406,6 +566,23 @@ def test_check_now_says_when_maphide_is_up_to_date(h):
     h.run_updater()
 
     assert h.backend.updateState == "latest"
+
+
+def test_an_installed_copy_offers_to_install_a_release_with_a_setup_file(h):
+    h.latest = NEW_RELEASE
+    h.backend.checkForUpdates()
+    h.run_updater()
+
+    assert h.backend.canInstallUpdate is True
+
+
+def test_a_release_without_a_setup_file_sends_you_to_the_download_page(h):
+    h.latest = Release("0.3.0")
+    h.backend.checkForUpdates()
+    h.run_updater()
+
+    assert h.backend.updateState == "available"
+    assert h.backend.canInstallUpdate is False
 
 
 def test_update_runs_the_installer_and_closes_maphide(h):

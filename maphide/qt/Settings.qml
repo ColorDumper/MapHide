@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Shapes
 
 // The settings drawer's contents: numbered sections, then Reset and
-// Save. Edits stay in the form, unapplied, until Save.
+// Save. Edits stay in the form, unapplied, until Save; closing the drawer
+// without Save puts the saved settings back (see Main.qml).
 Item {
     id: settings
 
@@ -18,6 +19,14 @@ Item {
     signal closeRequested()
 
     function stopCapture() { capturing = "" }
+
+    // Host, Port and Password back to hidden, so a reveal never outlasts
+    // the moment you wanted it: on stream, the next look would show them.
+    function maskSecrets() {
+        hostField.revealed = false
+        portField.revealed = false
+        passwordField.revealed = false
+    }
 
     function startCapture(target) {
         capturing = capturing === target ? "" : target
@@ -179,6 +188,7 @@ Item {
                     width: parent.width
                     spacing: 8
                     Field {
+                        id: hostField
                         width: (parent.width - 8) * 2 / 3
                         label: "HOST"
                         secret: true
@@ -186,6 +196,7 @@ Item {
                         onEdited: (text) => backend.setField("host", text)
                     }
                     Field {
+                        id: portField
                         width: (parent.width - 8) / 3
                         label: "PORT"
                         secret: true
@@ -195,6 +206,7 @@ Item {
                     }
                 }
                 Field {
+                    id: passwordField
                     width: parent.width
                     label: "PASSWORD"
                     secret: true
@@ -702,6 +714,34 @@ Item {
                 font.pixelSize: 12
                 color: settings.t.warn
             }
+            // One message at a time, in this order: a problem, the SAVED
+            // stamp, what a clicked Reset would interrupt, unsaved changes.
+            readonly property bool showResetWarning: settings.resetArmed
+                && backend.resetWarning !== ""
+                && settings.footerProblem === "" && !settings.savedStamp
+            Label {
+                objectName: "resetWarning"
+                anchors.fill: parent
+                visible: parent.showResetWarning
+                text: backend.resetWarning
+                wrapMode: Text.Wrap
+                verticalAlignment: Text.AlignVCenter
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: 12
+                color: settings.t.warn
+            }
+            // Closing Settings without Save puts the saved settings back.
+            Label {
+                objectName: "unsavedNote"
+                anchors.fill: parent
+                visible: backend.hasUnsavedChanges && settings.footerProblem === ""
+                    && !settings.savedStamp && !parent.showResetWarning
+                text: "Unsaved changes"
+                verticalAlignment: Text.AlignVCenter
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: 12
+                color: settings.t.warn
+            }
             Rectangle {
                 id: stamp
                 anchors.centerIn: parent
@@ -739,6 +779,7 @@ Item {
 
         PressButton {
             id: saveButton
+            objectName: "saveButton"
             anchors.right: parent.right
             anchors.rightMargin: 18
             y: 12

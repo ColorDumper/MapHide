@@ -1,7 +1,9 @@
 """The settings file: its shape, and reading and writing it."""
 
 import json
+import os
 import shutil
+import time
 from dataclasses import dataclass, replace
 
 from .hotkeys import (
@@ -23,6 +25,10 @@ MIN_HIDE_DELAY_MS = 0
 MAX_HIDE_DELAY_MS = 400
 MIN_PORT = 1
 MAX_PORT = 65535
+# How long a save keeps trying while another program has the settings file
+# open, and how often.
+SAVE_RETRY_SECONDS = 1.0
+SAVE_RETRY_INTERVAL_SECONDS = 0.05
 # Settings only the window uses. Changing these never needs the worker
 # restarted, so saving them leaves the OBS connection and the overlay alone.
 WINDOW_ONLY_FIELDS = frozenset({"auto_connect", "theme", "check_updates"})
@@ -171,7 +177,7 @@ def connection_from_form(host, port):
     """The OBS host and port from a settings form, as typed: (host, port).
 
     Raises ValueError with a message fit to show the user when either is
-    missing or the port isn't a number.
+    missing, or the port isn't a number from MIN_PORT to MAX_PORT.
     """
     host = str(host).strip()
     port_text = str(port).strip()
@@ -180,9 +186,12 @@ def connection_from_form(host, port):
     if not port_text:
         raise ValueError("OBS Port is required.")
     try:
-        return host, int(port_text)
+        port_number = int(port_text)
     except ValueError as exc:
         raise ValueError("OBS Port must be a number.") from exc
+    if not MIN_PORT <= port_number <= MAX_PORT:
+        raise ValueError(f"OBS Port must be between {MIN_PORT} and {MAX_PORT}.")
+    return host, port_number
 
 
 def config_from_form(
@@ -242,8 +251,7 @@ def ensure_config_file(path=CONFIG_PATH):
     if LEGACY_CONFIG_PATH.exists() and LEGACY_CONFIG_PATH.resolve() != path.resolve():
         shutil.copy2(LEGACY_CONFIG_PATH, path)
         return
-    with open(path, "w", encoding="utf-8") as file:
-        json.dump(default_config().to_dict(), file, indent=2)
+    save_config(default_config(), path)
 
 
 def load_config(path=CONFIG_PATH):
@@ -252,7 +260,32 @@ def load_config(path=CONFIG_PATH):
         return AppConfig.from_dict(json.load(file))
 
 
+def _replace_when_free(source, target):
+    """Swap `source` in for `target`. While another program has `target`
+    open, such as a virus scanner checking it, Windows refuses; that
+    usually lasts a moment, so try again for up to about a second."""
+    deadline = time.monotonic() + SAVE_RETRY_SECONDS
+    while True:
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(SAVE_RETRY_INTERVAL_SECONDS)
+
+
 def save_config(cfg, path=CONFIG_PATH):
+    """Write `cfg` to a temporary file next to `path`, then swap it in, so a
+    crash or power cut mid-save leaves the old settings, never half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as file:
-        json.dump(cfg.to_dict(), file, indent=2)
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        with open(temporary, "w", encoding="utf-8") as file:
+            json.dump(cfg.to_dict(), file, indent=2)
+            file.flush()
+            os.fsync(file.fileno())
+        _replace_when_free(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise

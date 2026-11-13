@@ -14,6 +14,7 @@ from PySide6.QtCore import (
     QAbstractNativeEventFilter,
     QEvent,
     QObject,
+    QPoint,
     QTimer,
     QUrl,
     Signal,
@@ -56,6 +57,9 @@ AUTO_CONNECT_DELAY_MS = 250
 UPDATE_CHECK_DELAY_MS = 3000
 CONFIG_NOT_LOADED = "Settings couldn't be read, so the defaults are in use."
 NO_TRAY = "No notification area, so closing the window will exit MapHide."
+NO_COMMANDS = "Opening MapHide again can't bring this window forward."
+# The most a second launch's command can take before its line break.
+MAX_COMMAND_BYTES = 256
 # How long to wait, when Windows is signing out or shutting down, for the
 # worker to hide the overlay. Windows gives an app about five seconds before
 # ending it regardless.
@@ -63,6 +67,91 @@ SESSION_END_WAIT_SECONDS = 4
 WM_ENDSESSION = 0x0016
 # Fonts the window is drawn in; the self-test checks each one loaded.
 FONT_FAMILIES = ("Barlow", "Barlow Condensed", "IBM Plex Mono")
+# The shortest the window gets on a small screen: everything above the
+# field log still shows.
+MIN_WINDOW_HEIGHT = 540
+# The title bar and border, when Windows hasn't said yet (the window isn't
+# shown). Generous, so a guess never leaves the bottom off-screen.
+DEFAULT_FRAME_HEIGHT = 40
+
+
+def fitted_height(full, available, frame):
+    """The window's height on a screen with `available` height above the
+    taskbar, `frame` of it going to the title bar: the full height when it
+    fits, otherwise what fits, but never below MIN_WINDOW_HEIGHT."""
+    return max(MIN_WINDOW_HEIGHT, min(full, available - frame))
+
+
+def on_screen_top(top, height, area_top, area_height):
+    """Where a window `height` tall, now at `top`, goes so it's inside the
+    area: it stays put if it already is. When it can't fit, its title bar
+    stays visible."""
+    lowest = area_top + area_height - height
+    return max(area_top, min(top, lowest))
+
+
+def set_window_height(window, height):
+    """Resize the window to `height` and hold it there, so it can't be
+    dragged taller or shorter. The hold is loosened first: Windows keeps a
+    window inside its old limits and would ignore the new height."""
+    window.setMinimumHeight(min(height, window.minimumHeight()))
+    window.setMaximumHeight(max(height, window.maximumHeight()))
+    window.resize(window.width(), height)
+    window.setMinimumHeight(height)
+    window.setMaximumHeight(height)
+
+
+def fit_to_screen(window):
+    """Give the window the height its screen has room for, title bar
+    included, and move it inside the area above the taskbar if part of it
+    is off. Safe before the window is shown: it then guesses the title bar."""
+    screen = window.screen()
+    if screen is None:
+        return
+    area = screen.availableGeometry()
+    margins = window.frameMargins()
+    frame = margins.top() + margins.bottom()
+    if window.isVisible() and frame > 0:
+        frame_height = frame
+    else:
+        frame_height = DEFAULT_FRAME_HEIGHT
+    height = fitted_height(window.property("fullHeight"), area.height(), frame_height)
+    if height != window.height():
+        set_window_height(window, height)
+    if window.isVisible():
+        outer = window.frameGeometry()
+        top = on_screen_top(outer.top(), outer.height(), area.top(), area.height())
+        if top != outer.top():
+            window.setFramePosition(outer.topLeft() + QPoint(0, top - outer.top()))
+
+
+class ScreenFit(QObject):
+    """Fits the window to its screen again whenever that changes: moved to
+    another monitor, a new resolution or scaling, a taller taskbar."""
+
+    def __init__(self, window):
+        super().__init__()
+        self._window = window
+        self._screen = None
+        window.screenChanged.connect(self._on_screen_changed)
+        self._on_screen_changed(window.screen())
+
+    # Connected as this object's own methods, not lambdas, so Qt stops
+    # calling them the moment this object is gone.
+
+    def _on_screen_changed(self, screen):
+        if self._screen is not None and isValid(self._screen):
+            self._screen.availableGeometryChanged.disconnect(self._on_area_changed)
+        self._screen = screen
+        if screen is not None:
+            screen.availableGeometryChanged.connect(self._on_area_changed)
+        self.fit()
+
+    def _on_area_changed(self, _area):
+        self.fit()
+
+    def fit(self):
+        fit_to_screen(self._window)
 
 
 def argb(color, opacity):
@@ -155,9 +244,13 @@ class Backend(QObject):
         self.refresh()
         self._poll_timer.start()
         if cfg.auto_connect:
-            QTimer.singleShot(AUTO_CONNECT_DELAY_MS, self._start)
-        if cfg.check_updates and self._update_checks:
-            self._schedule(UPDATE_CHECK_DELAY_MS, self._check_quietly)
+            self._schedule(AUTO_CONNECT_DELAY_MS, self._start)
+        if self._update_checks:
+            # A check clears out earlier update downloads too; without one,
+            # they're cleared out anyway. Not at once: after an update, its
+            # installer may still be finishing.
+            later = self._check_quietly if cfg.check_updates else self.updater.tidy
+            self._schedule(UPDATE_CHECK_DELAY_MS, later)
 
     # Keeping the window current.
 
@@ -199,7 +292,13 @@ class Backend(QObject):
         updater = self.updater
         version = updater.release.version if updater.release else ""
         # Whole percent, so the window redraws only when the number moves.
-        return (updater.state, updater.message, version, round(updater.progress * 100))
+        return (
+            updater.state,
+            updater.message,
+            version,
+            round(updater.progress * 100),
+            updater.can_install_release,
+        )
 
     def _settings_view(self):
         text, warning = source_line(self._source_count())
@@ -254,6 +353,10 @@ class Backend(QObject):
     def testEnabled(self):
         return self._view.test_enabled
 
+    @Property(str, notify=changed)
+    def resetWarning(self):
+        return self._view.reset_warning
+
     @Property("QVariantMap", notify=themeChanged)
     def theme(self):
         return theme_colors(theme_name(self._form["theme"]))
@@ -273,13 +376,12 @@ class Backend(QObject):
     # What the user does.
 
     def _start(self):
+        # The saved settings, never the form: Start doesn't pick up, or
+        # save, changes Save hasn't kept. Checked as the form would be, so a
+        # missing host gets the same message.
         try:
-            self.controller.start(config_from_form(**self._form))
-        except ValueError as exc:
-            self.notice(str(exc))
-        except OSError as exc:
-            self.notice(f"Couldn't save settings: {plain_reason(exc)}")
-        except RuntimeError as exc:
+            self.controller.start(config_from_form(**form_values(self.controller.running_config)))
+        except (ValueError, RuntimeError) as exc:
             self.notice(str(exc))
 
     @Slot()
@@ -326,6 +428,28 @@ class Backend(QObject):
     @Property("QVariantMap", notify=formChanged)
     def form(self):
         return self._form
+
+    @Property(bool, notify=formChanged)
+    def hasUnsavedChanges(self):
+        """Whether the form holds anything Save hasn't kept. Spaces around a
+        value don't count: Save would drop them."""
+        saved = self.controller.running_config
+        if self._form == form_values(saved):
+            return False
+        try:
+            return config_from_form(**self._form) != saved
+        except ValueError:
+            # Half-typed, so it can't be what's saved.
+            return True
+
+    @Slot()
+    def discardChanges(self):
+        """Settings closed without Save: put the saved settings back, theme
+        included."""
+        if self._form != form_values(self.controller.running_config):
+            self._set_form(self.controller.running_config)
+            self.clearTest()
+            self.refresh()
 
     @Slot(str, "QVariant")
     def setField(self, name, value):
@@ -412,6 +536,8 @@ class Backend(QObject):
         except OSError as exc:
             self.saveFailed.emit(f"Couldn't save settings: {plain_reason(exc)}")
             return
+        # The form now shows exactly what was saved (spaces trimmed, say).
+        self._set_form(self.controller.running_config)
         self.saved.emit()
 
     @Slot()
@@ -430,9 +556,9 @@ class Backend(QObject):
     def updatesShown(self):
         return self._update_checks
 
-    @Property(bool, constant=True)
+    @Property(bool, notify=updateChanged)
     def canInstallUpdate(self):
-        return self.updater.can_install
+        return self._update[4]
 
     @Property(str, constant=True)
     def releasesPage(self):
@@ -522,6 +648,7 @@ def build_window(backend):
     window = roots[0] if roots else None
     if window is not None:
         window._field_focus = FieldFocus(window, backend.windowPressed.emit)
+        set_window_height(window, window.property("fullHeight"))
     return engine, window, warnings
 
 
@@ -600,6 +727,10 @@ class CommandServer(QObject):
             handler = self._handlers.get(line)
             if handler is not None:
                 handler()
+        # A command is one short word. Whatever sends this much without a
+        # line break isn't MapHide, so stop holding what it sends.
+        if connection.bytesAvailable() > MAX_COMMAND_BYTES:
+            connection.abort()
 
     def close(self):
         self._server.close()
@@ -680,9 +811,16 @@ def main():
     backend.load()
     if tray is None:
         backend.notice(NO_TRAY)
+    if not commands.listening:
+        # A second launch then can't reach this one, and shows the "already
+        # running" notice after a few seconds instead.
+        backend.notice(NO_COMMANDS)
     # Shown only now, so it appears with its theme's title bar already set.
     paint_title_bar()
+    screen_fit = ScreenFit(window)
     window.show()
+    # Again, now that Windows has said how tall the title bar really is.
+    screen_fit.fit()
     result = app.exec()
     commands.close()
     app.removeNativeEventFilter(session_end)
@@ -691,6 +829,25 @@ def main():
     # Tear the window down while the backend it reads from still exists.
     del engine
     return result
+
+
+def bundle_problems(icon_path=ICON_ICO_PATH):
+    """Pieces the app needs that opening the window doesn't prove are there:
+    HTTPS, which the update check uses, and the window icon. Without HTTPS
+    every check would just say GitHub can't be reached. Needs a running
+    QApplication. Returns what's wrong, empty when nothing is."""
+    problems = []
+    try:
+        # Imported here: a missing piece should fail this check, not stop
+        # MapHide from opening.
+        import ssl
+
+        ssl.create_default_context()
+    except Exception:
+        problems.append("HTTPS support did not load, so update checks would fail")
+    if QIcon(str(icon_path)).pixmap(32, 32).isNull():
+        problems.append("the window icon did not load")
+    return problems
 
 
 def selftest():
@@ -713,6 +870,7 @@ def selftest():
     missing_fonts = set(FONT_FAMILIES) - set(QFontDatabase.families())
     if missing_fonts:
         problems.append(f"fonts not loaded: {', '.join(sorted(missing_fonts))}")
+    problems.extend(bundle_problems())
     for problem in problems:
         print(problem, file=sys.stderr)
     del engine

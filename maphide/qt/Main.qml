@@ -8,14 +8,25 @@ Window {
     readonly property var t: backend.theme
     readonly property string st: backend.screen
     readonly property bool running: backend.primaryIsStop
+    // The red X and the COVERED stamp are part of the logo, not the theme,
+    // so they stay the same whichever theme is chosen.
     readonly property color coverRed: "#d9483b"
     readonly property color coverRedText: "#ff7a6b"
     property bool drawerOpen: false
+    // Closing Settings without Save puts the saved settings back: only Save
+    // keeps a change.
     onDrawerOpenChanged: if (!drawerOpen) {
         settings.stopCapture()
+        settings.maskSecrets()
+        releaseKeyboard()
+        backend.discardChanges()
+    }
+    // Hidden to the tray, Settings may still be open: hide Host, Port and
+    // Password anyway.
+    onVisibleChanged: if (!visible) {
+        settings.maskSecrets()
         releaseKeyboard()
     }
-    onVisibleChanged: if (!visible) releaseKeyboard()
 
     // Takes the keyboard back from whichever text field has it, so keys
     // pressed afterwards don't type into a field you can no longer see.
@@ -38,12 +49,16 @@ Window {
         function onWindowPressed(x, y) { win.releaseFieldUnlessAt(x, y) }
     }
 
+    // The height the window is designed for. Python sets the actual height
+    // and holds it there (see set_window_height): lower on a screen too
+    // short for it, with the field log and the Settings list taking up the
+    // difference.
+    readonly property int fullHeight: 748
+
     width: 480
-    height: 748
+    height: fullHeight
     minimumWidth: width
     maximumWidth: width
-    minimumHeight: height
-    maximumHeight: height
     // Shown from Python once its title bar matches the theme.
     visible: false
     title: "MapHide"
@@ -59,11 +74,9 @@ Window {
     function em(size, amount) { return size * amount }
 
     Item {
-        id: stage
         anchors.fill: parent
 
         Item {
-            id: main
             anchors.fill: parent
             transformOrigin: Item.Left
             scale: win.drawerOpen ? 0.965 : 1
@@ -191,7 +204,6 @@ Window {
                                     Condensed {
                                         text: ["OBS LINK", "LIVE SCENE", "MODE"][cell.index]
                                         font.pixelSize: 12
-                                        font.weight: Font.Normal
                                         font.letterSpacing: win.em(12, 0.14)
                                         color: win.t.muted
                                     }
@@ -215,7 +227,21 @@ Window {
                                         }
                                         Mono {
                                             id: value
+                                            objectName: "statusValue" + cell.index
+                                            // Its box, for the tests.
+                                            readonly property Item box: cell
+                                            // Never past its own box. A scene name can be
+                                            // any length, so a long one ends in "…". The
+                                            // link state and mode are short enough to
+                                            // shrink to fit instead. (Qt doesn't shrink
+                                            // text that may also end in "…".)
+                                            readonly property bool isScene: cell.index === 1
+                                            width: cell.width - 24 - (dot.visible ? dot.width + 6 : 0)
                                             font.pixelSize: 13
+                                            fontSizeMode: isScene ? Text.FixedSize : Text.HorizontalFit
+                                            // 11 draws as wide as 12 in this font.
+                                            minimumPixelSize: 10
+                                            elide: isScene ? Text.ElideRight : Text.ElideNone
                                             text: cell.index === 0
                                                 ? ({ stopped: "OFFLINE", connecting: "LINKING" })[win.st] || "ONLINE"
                                                 : cell.index === 1 ? backend.scene : backend.mode
@@ -519,49 +545,124 @@ Window {
 
                 // Field log
                 Rectangle {
+                    objectName: "fieldLog"
                     width: parent.width
-                    height: win.height - y - column.y - 36
+                    height: Math.max(0, win.height - y - column.y - 36)
                     color: win.t.glass
                     border.color: win.t.border
                     clip: true
-                    Column {
+                    Condensed {
+                        id: logHeading
                         x: 14
                         y: 10
+                        text: "FIELD LOG"
+                        font.pixelSize: 13
+                        font.letterSpacing: win.em(13, 0.16)
+                        color: win.t.muted
+                    }
+                    // The lines scroll sideways when one is too long to fit, but
+                    // only when you scroll them: a new line never moves them.
+                    Flickable {
+                        id: logView
+                        objectName: "fieldLogView"
+                        x: 14
+                        y: logHeading.y + logHeading.height + 5
                         width: parent.width - 28
-                        spacing: 5
-                        Condensed {
-                            text: "FIELD LOG"
-                            font.pixelSize: 13
-                            font.weight: Font.Normal
-                            font.letterSpacing: win.em(13, 0.16)
-                            color: win.t.muted
-                        }
-                        Repeater {
-                            model: ListModel { id: logModel }
-                            delegate: Item {
-                                id: line
-                                required property string time
-                                required property string text
-                                required property string tone
-                                property real reveal: 0
-                                width: lineRow.width * Math.floor(reveal * 18) / 18
-                                height: lineRow.height
-                                clip: true
-                                NumberAnimation on reveal { from: 0; to: 1; duration: 350 }
-                                Row {
-                                    id: lineRow
-                                    spacing: 10
-                                    Mono { text: line.time; font.pixelSize: 12; color: win.t.faint }
-                                    Mono {
-                                        text: line.text
-                                        font.pixelSize: 12
-                                        color: ({
-                                            linked: win.t.ok,
-                                            covered: win.coverRedText,
-                                            warning: win.t.warn
-                                        })[line.tone] || win.t.text
+                        height: Math.max(0, logBar.y - y - 4)
+                        clip: true
+                        contentWidth: Math.max(width, logLines.width)
+                        contentHeight: logLines.height
+                        flickableDirection: Flickable.HorizontalFlick
+                        boundsBehavior: Flickable.StopAtBounds
+                        interactive: contentWidth > width
+                        readonly property real maxX: Math.max(0, contentWidth - width)
+                        function scrollTo(x) { contentX = Math.max(0, Math.min(maxX, x)) }
+                        // Long lines dropping off the log: stay within what's left.
+                        onMaxXChanged: if (contentX > maxX) contentX = maxX
+                        Column {
+                            id: logLines
+                            spacing: 5
+                            Repeater {
+                                model: ListModel { id: logModel }
+                                delegate: Item {
+                                    id: line
+                                    required property string time
+                                    required property string text
+                                    required property string tone
+                                    property real reveal: 0
+                                    width: lineRow.width * Math.floor(reveal * 18) / 18
+                                    height: lineRow.height
+                                    clip: true
+                                    NumberAnimation on reveal { from: 0; to: 1; duration: 350 }
+                                    Row {
+                                        id: lineRow
+                                        spacing: 10
+                                        Mono { text: line.time; font.pixelSize: 12; color: win.t.faint }
+                                        Mono {
+                                            text: line.text
+                                            font.pixelSize: 12
+                                            color: ({
+                                                linked: win.t.ok,
+                                                covered: win.coverRedText,
+                                                warning: win.t.warn
+                                            })[line.tone] || win.t.text
+                                        }
                                     }
                                 }
+                            }
+                        }
+                    }
+                    // The wheel scrolls the lines sideways anywhere over them,
+                    // as there is nothing to scroll up and down.
+                    MouseArea {
+                        anchors.fill: logView
+                        acceptedButtons: Qt.NoButton
+                        onWheel: (wheel) => {
+                            const delta = wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : wheel.angleDelta.y
+                            logView.scrollTo(logView.contentX - delta / 2)
+                        }
+                    }
+                    // A thin bar along the bottom, only while a line is too long
+                    // to fit: drag it to scroll.
+                    Rectangle {
+                        id: logBar
+                        objectName: "fieldLogBar"
+                        visible: logView.maxX > 0
+                        x: 14
+                        y: parent.height - height - 8
+                        width: parent.width - 28
+                        height: 4
+                        color: win.t.border
+                        Rectangle {
+                            id: logHandle
+                            objectName: "fieldLogHandle"
+                            width: Math.max(24, parent.width * logView.width / logView.contentWidth)
+                            height: parent.height
+                            x: logView.maxX > 0 ? (parent.width - width) * logView.contentX / logView.maxX : 0
+                            color: handleDrag.pressed || handleDrag.containsMouse ? win.t.muted : win.t.border2
+                        }
+                        // Taller than the bar, so it's easy to grab.
+                        MouseArea {
+                            id: handleDrag
+                            anchors.fill: parent
+                            anchors.topMargin: -6
+                            anchors.bottomMargin: -6
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            property real grabX: 0
+                            property real grabContentX: 0
+                            onPressed: (mouse) => {
+                                if (mouse.x < logHandle.x || mouse.x > logHandle.x + logHandle.width)
+                                    // A click beside the handle jumps it there.
+                                    logView.scrollTo((mouse.x - logHandle.width / 2)
+                                        / (width - logHandle.width) * logView.maxX)
+                                grabX = mouse.x
+                                grabContentX = logView.contentX
+                            }
+                            onPositionChanged: (mouse) => {
+                                if (pressed && width > logHandle.width)
+                                    logView.scrollTo(grabContentX
+                                        + (mouse.x - grabX) / (width - logHandle.width) * logView.maxX)
                             }
                         }
                     }
@@ -619,7 +720,7 @@ Window {
 
         // Settings drawer: slides in over the main screen.
         Rectangle {
-            id: drawer
+            objectName: "drawer"
             width: 436
             height: parent.height
             // How far open, from 0 (hidden) to 1. The slide animates this,
@@ -635,6 +736,7 @@ Window {
 
             Settings {
                 id: settings
+                objectName: "settings"
                 anchors.fill: parent
                 anchors.leftMargin: 1
                 onCloseRequested: win.drawerOpen = false

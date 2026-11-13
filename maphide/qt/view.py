@@ -19,6 +19,10 @@ CONNECTING_HINT = "Looking for OBS on the streaming PC."
 COVERING_HINT = "Viewers see the cover, not your map."
 APPLYING_HINT = "Applying settings…"
 STOPPING_HINT = "Stopping…"
+# Shown once Reset is clicked, while MapHide is running: the defaults have no
+# OBS details, so Reset stops it.
+RESET_DISCONNECTS = "Reset disconnects MapHide from OBS."
+RESET_STOPS = "Reset stops MapHide."
 # What a service that has never run, or stopped normally, says about itself.
 _QUIET_STOP_MESSAGES = ("Idle", STOPPED_MESSAGE)
 
@@ -34,6 +38,16 @@ class MainView:
     primary_is_stop: bool
     primary_enabled: bool
     test_enabled: bool
+    # What Reset would interrupt, or "" when MapHide isn't running.
+    reset_warning: str = ""
+
+
+def _reset_warning(screen):
+    if screen in (SCREEN_CONNECTED, SCREEN_COVERING):
+        return RESET_DISCONNECTS
+    if screen == SCREEN_CONNECTING:
+        return RESET_STOPS
+    return ""
 
 
 def standby_hint(cfg):
@@ -91,6 +105,7 @@ def main_view(controller):
         primary_is_stop=primary_is_stop,
         primary_enabled=controller.can_stop if primary_is_stop else controller.can_start,
         test_enabled=controller.can_test,
+        reset_warning=_reset_warning(screen),
     )
 
 

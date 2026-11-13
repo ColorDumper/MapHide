@@ -54,6 +54,9 @@ SolidCompression=yes
 ; MapHide is closed with --quit below, which hides the overlay in OBS first.
 CloseApplications=no
 RestartApplications=no
+; The old version's files are deleted before the new ones are copied (see
+; [InstallDelete]), so a cancel in between would leave MapHide unable to start.
+AllowCancelDuringInstall=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -80,6 +83,7 @@ Filename: "{app}\MapHide.exe"; Flags: nowait; Check: RelaunchRequested
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\_internal"
+Type: filesandordirs; Name: "{%TEMP}\MapHide-update"
 
 [Code]
 var

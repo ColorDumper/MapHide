@@ -194,7 +194,7 @@ def recheck_missing_source(client, scene_items, scene_name, source_name):
 
 def scene_status(scene_name, is_first_detection=False):
     # No hotkey/mode explanation here: the window shows that on its own, and
-    # repeating it made this line far too long for the space.
+    # this line has to fit a narrow space.
     verb = "New scene detected" if is_first_detection else "Switched to scene"
     return f"{verb}: {scene_name}."
 
@@ -765,6 +765,10 @@ class MapHideService:
                         "Could not hide the overlay while stopping: %s", describe_exception(exc)
                     )
                     final_status_message = OBS_OVERLAY_MAY_REMAIN
+            elif client is None and overlay_may_remain and final_status_message == STOPPED_MESSAGE:
+                # Stopped while retrying a link that dropped with the overlay
+                # up: nothing has hidden it since, so the warning still holds.
+                final_status_message = OBS_OVERLAY_MAY_REMAIN
             if client is not None:
                 try:
                     disconnect_obs(client)

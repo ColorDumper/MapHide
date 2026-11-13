@@ -163,11 +163,21 @@ jobs:
         id: installer
         shell: pwsh
         run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) {
-            choco install innosetup --no-progress -y
+          # One known version builds every installer, whatever the runner
+          # image happens to come with.
+          $innoVersion = '6.7.1'
+          $innoDir = "${env:ProgramFiles(x86)}\Inno Setup 6"
+          $iscc = "$innoDir\ISCC.exe"
+          function Get-InnoVersion {
+            $uninstaller = "$innoDir\unins000.exe"
+            if (Test-Path $uninstaller) { (Get-Item $uninstaller).VersionInfo.ProductVersion.Trim() } else { '' }
+          }
+          if ((Get-InnoVersion) -ne $innoVersion) {
+            choco install innosetup --version $innoVersion --allow-downgrade --force --no-progress -y
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
+          $found = Get-InnoVersion
+          if ($found -ne $innoVersion) { throw "Inno Setup is $found, expected $innoVersion" }
           $appVersion = python -c "from maphide.version import VERSION; print(VERSION)"
           $name = 'MapHide-${{ steps.package.outputs.version }}-setup'
           & $iscc /Qp installer/MapHide.iss "/DAppVersion=$appVersion" "/DOutputName=$name"

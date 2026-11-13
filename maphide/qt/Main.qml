@@ -542,48 +542,123 @@ Window {
                 Rectangle {
                     objectName: "fieldLog"
                     width: parent.width
-                    height: Math.max(0,win.height - y - column.y - 36)
+                    height: Math.max(0, win.height - y - column.y - 36)
                     color: win.t.glass
                     border.color: win.t.border
                     clip: true
-                    Column {
+                    Condensed {
+                        id: logHeading
                         x: 14
                         y: 10
+                        text: "FIELD LOG"
+                        font.pixelSize: 13
+                        font.weight: Font.Normal
+                        font.letterSpacing: win.em(13, 0.16)
+                        color: win.t.muted
+                    }
+                    // The lines scroll sideways when one is too long to fit, but
+                    // only when you scroll them: a new line never moves them.
+                    Flickable {
+                        id: logView
+                        objectName: "fieldLogView"
+                        x: 14
+                        y: logHeading.y + logHeading.height + 5
                         width: parent.width - 28
-                        spacing: 5
-                        Condensed {
-                            text: "FIELD LOG"
-                            font.pixelSize: 13
-                            font.weight: Font.Normal
-                            font.letterSpacing: win.em(13, 0.16)
-                            color: win.t.muted
-                        }
-                        Repeater {
-                            model: ListModel { id: logModel }
-                            delegate: Item {
-                                id: line
-                                required property string time
-                                required property string text
-                                required property string tone
-                                property real reveal: 0
-                                width: lineRow.width * Math.floor(reveal * 18) / 18
-                                height: lineRow.height
-                                clip: true
-                                NumberAnimation on reveal { from: 0; to: 1; duration: 350 }
-                                Row {
-                                    id: lineRow
-                                    spacing: 10
-                                    Mono { text: line.time; font.pixelSize: 12; color: win.t.faint }
-                                    Mono {
-                                        text: line.text
-                                        font.pixelSize: 12
-                                        color: ({
-                                            linked: win.t.ok,
-                                            covered: win.coverRedText,
-                                            warning: win.t.warn
-                                        })[line.tone] || win.t.text
+                        height: Math.max(0, logBar.y - y - 4)
+                        clip: true
+                        contentWidth: Math.max(width, logLines.width)
+                        contentHeight: logLines.height
+                        flickableDirection: Flickable.HorizontalFlick
+                        boundsBehavior: Flickable.StopAtBounds
+                        interactive: contentWidth > width
+                        readonly property real maxX: Math.max(0, contentWidth - width)
+                        function scrollTo(x) { contentX = Math.max(0, Math.min(maxX, x)) }
+                        // Long lines dropping off the log: stay within what's left.
+                        onMaxXChanged: if (contentX > maxX) contentX = maxX
+                        Column {
+                            id: logLines
+                            spacing: 5
+                            Repeater {
+                                model: ListModel { id: logModel }
+                                delegate: Item {
+                                    id: line
+                                    required property string time
+                                    required property string text
+                                    required property string tone
+                                    property real reveal: 0
+                                    width: lineRow.width * Math.floor(reveal * 18) / 18
+                                    height: lineRow.height
+                                    clip: true
+                                    NumberAnimation on reveal { from: 0; to: 1; duration: 350 }
+                                    Row {
+                                        id: lineRow
+                                        spacing: 10
+                                        Mono { text: line.time; font.pixelSize: 12; color: win.t.faint }
+                                        Mono {
+                                            text: line.text
+                                            font.pixelSize: 12
+                                            color: ({
+                                                linked: win.t.ok,
+                                                covered: win.coverRedText,
+                                                warning: win.t.warn
+                                            })[line.tone] || win.t.text
+                                        }
                                     }
                                 }
+                            }
+                        }
+                    }
+                    // The wheel scrolls the lines sideways anywhere over them,
+                    // as there is nothing to scroll up and down.
+                    MouseArea {
+                        anchors.fill: logView
+                        acceptedButtons: Qt.NoButton
+                        onWheel: (wheel) => {
+                            const delta = wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : wheel.angleDelta.y
+                            logView.scrollTo(logView.contentX - delta / 2)
+                        }
+                    }
+                    // A thin bar along the bottom, only while a line is too long
+                    // to fit: drag it to scroll.
+                    Rectangle {
+                        id: logBar
+                        objectName: "fieldLogBar"
+                        visible: logView.maxX > 0
+                        x: 14
+                        y: parent.height - height - 8
+                        width: parent.width - 28
+                        height: 4
+                        color: win.t.border
+                        Rectangle {
+                            id: logHandle
+                            objectName: "fieldLogHandle"
+                            width: Math.max(24, parent.width * logView.width / logView.contentWidth)
+                            height: parent.height
+                            x: logView.maxX > 0 ? (parent.width - width) * logView.contentX / logView.maxX : 0
+                            color: handleDrag.pressed || handleDrag.containsMouse ? win.t.muted : win.t.border2
+                        }
+                        // Taller than the bar, so it's easy to grab.
+                        MouseArea {
+                            id: handleDrag
+                            anchors.fill: parent
+                            anchors.topMargin: -6
+                            anchors.bottomMargin: -6
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            property real grabX: 0
+                            property real grabContentX: 0
+                            onPressed: (mouse) => {
+                                if (mouse.x < logHandle.x || mouse.x > logHandle.x + logHandle.width)
+                                    // A click beside the handle jumps it there.
+                                    logView.scrollTo((mouse.x - logHandle.width / 2)
+                                        / (width - logHandle.width) * logView.maxX)
+                                grabX = mouse.x
+                                grabContentX = logView.contentX
+                            }
+                            onPositionChanged: (mouse) => {
+                                if (pressed && width > logHandle.width)
+                                    logView.scrollTo(grabContentX
+                                        + (mouse.x - grabX) / (width - logHandle.width) * logView.maxX)
                             }
                         }
                     }

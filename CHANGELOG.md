@@ -2,7 +2,7 @@
 
 All notable changes to MapHide are documented here.
 
-## Unreleased
+## v0.3.0 - 2026-11-13
 
 - Fixed MapHide staying open in the background for several seconds, without
   hiding the overlay in OBS, when it was closed right after saving settings

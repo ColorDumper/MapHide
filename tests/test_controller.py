@@ -271,6 +271,21 @@ def test_a_restart_waits_as_long_as_the_old_worker_needs(h):
     assert len(h.schedule.pending) == 1
 
 
+def test_saving_while_maphide_is_stopping_does_not_start_it_again(h):
+    h.controller.start(make_config())
+    h.controller.stop()
+
+    h.controller.save(make_config(hotkey="M"))
+    h.service.finish_stopping()
+    while h.schedule.pending:
+        h.schedule.run_next()
+
+    assert h.service.started_with == [make_config()]
+    assert h.saved[-1] == make_config(hotkey="M")
+    assert h.controller.running_config == make_config(hotkey="M")
+    assert h.controller.can_start is True
+
+
 def test_restoring_defaults_while_running_stops_and_stays_stopped(h):
     h.controller.start(make_config())
 

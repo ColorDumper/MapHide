@@ -22,7 +22,13 @@ from .config import (
     worker_settings_differ,
 )
 from .obs import ConnectionCheck, check_connection
-from .overlay import CONNECTED, MapHideService, human_ts, stop_wait_should_continue
+from .overlay import (
+    CONNECTED,
+    STOPPING,
+    MapHideService,
+    human_ts,
+    stop_wait_should_continue,
+)
 
 HISTORY_LINE_COUNT = 10
 RESTART_POLL_INTERVAL_MS = 50
@@ -208,8 +214,12 @@ class AppController:
         self._record(cfg, done_message, code)
         # Only restart for a change the worker would actually see: a restart
         # briefly drops the OBS link and hides the overlay. A restart already
-        # under way always takes the newest settings.
-        if self.restart_pending or (self.service.is_running and self._worker_needs(cfg)):
+        # under way always takes the newest settings. A worker you stopped is
+        # left to stop, even while it is still finishing.
+        stopping = self.service.status.state == STOPPING
+        if self.restart_pending or (
+            self.service.is_running and not stopping and self._worker_needs(cfg)
+        ):
             self._restart_service_with(cfg)
         self._on_change()
 

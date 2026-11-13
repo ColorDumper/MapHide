@@ -368,6 +368,40 @@ def test_a_drop_with_the_overlay_hidden_has_no_such_warning_and_it_does_not_ling
     assert "may still be showing" not in after_second_drop.message
 
 
+def test_stopping_while_retrying_with_the_overlay_maybe_up_ends_with_the_warning(monkeypatch):
+    obs = standard_obs()
+    unreachable = ObsUnreachableError("Failed to connect to OBS. Make sure OBS is open.")
+    # Stop is pressed during the third attempt: the second failed retry.
+    session = Session(monkeypatch, make_config(), [obs] + [unreachable] * 5, stop_at_connect=3)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        s.keyboard.hold("G")
+        yield s.until(lambda: obs.is_enabled("Gameplay"), "the overlay to be shown")
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.pause(5.0)
+
+    session.run(scenario, worker_ends_first=True)
+
+    assert session.service.status.state == STOPPED
+    assert session.service.status.message == OBS_OVERLAY_MAY_REMAIN
+
+
+def test_stopping_while_retrying_with_the_overlay_hidden_is_a_plain_stop(monkeypatch):
+    obs = standard_obs()
+    unreachable = ObsUnreachableError("Failed to connect to OBS. Make sure OBS is open.")
+    session = Session(monkeypatch, make_config(), [obs] + [unreachable] * 5, stop_at_connect=3)
+
+    def scenario(s):
+        yield first_scene_read(s)
+        obs.rule("GetCurrentProgramScene", raises=OBSSDKTimeoutError("timed out"))
+        yield s.pause(5.0)
+
+    session.run(scenario, worker_ends_first=True)
+
+    assert session.service.status.message == "MapHide stopped."
+
+
 def test_with_auto_reconnect_off_a_drop_while_shown_ends_with_the_overlay_warning(monkeypatch):
     obs = standard_obs()
     session = Session(monkeypatch, make_config(auto_reconnect=False), obs)

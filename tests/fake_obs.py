@@ -247,10 +247,11 @@ class Session:
     `connect` is a FakeObs (every connection attempt reaches it) or a list
     consumed one attempt at a time - an exception in the list is raised, and
     a list that runs dry is refused as a wrong password so the worker gives up
-    instead of retrying forever.
+    instead of retrying forever. `stop_at_connect` presses Stop during that
+    connection attempt (1 is the first), as if while MapHide retries.
     """
 
-    def __init__(self, monkeypatch, cfg, connect, *, max_seconds=15.0):
+    def __init__(self, monkeypatch, cfg, connect, *, max_seconds=15.0, stop_at_connect=None):
         self.cfg = cfg
         self.service = MapHideService()
         self.keyboard = FakeKeyboard()
@@ -267,6 +268,7 @@ class Session:
         self._show_code = cfg.show_vk_codes()[0]
         self._started = time.monotonic()
         self._max_seconds = max_seconds
+        self._stop_at_connect = stop_at_connect
 
         monkeypatch.setattr(overlay_module, "connect_obs", self._connect_obs)
         monkeypatch.setattr(overlay_module, "configure_logging", lambda enabled: None)
@@ -320,6 +322,8 @@ class Session:
 
     def _connect_obs(self, host, port, password):
         self.status_at_connect.append(self.service.status)
+        if len(self.status_at_connect) == self._stop_at_connect:
+            self.service.stop()
         target = self._connect
         if isinstance(target, FakeObs):
             client = target

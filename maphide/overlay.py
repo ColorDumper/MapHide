@@ -765,6 +765,10 @@ class MapHideService:
                         "Could not hide the overlay while stopping: %s", describe_exception(exc)
                     )
                     final_status_message = OBS_OVERLAY_MAY_REMAIN
+            elif client is None and overlay_may_remain and final_status_message == STOPPED_MESSAGE:
+                # Stopped while retrying a link that dropped with the overlay
+                # up: nothing has hidden it since, so the warning still holds.
+                final_status_message = OBS_OVERLAY_MAY_REMAIN
             if client is not None:
                 try:
                     disconnect_obs(client)

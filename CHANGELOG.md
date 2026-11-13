@@ -63,6 +63,8 @@ All notable changes to MapHide are documented here.
   Stop.
 - Changed Host, Port and Password to hide again whenever you close Settings
   or MapHide goes to the tray, so they never stay shown on stream.
+- Fixed MapHide only saying it stopped, when you pressed Stop while it was
+  reconnecting and the overlay might still be showing in OBS.
 
 ## v0.2.6 - 2026-10-27
 

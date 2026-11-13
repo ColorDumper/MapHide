@@ -381,11 +381,7 @@ class Backend(QObject):
         # missing host gets the same message.
         try:
             self.controller.start(config_from_form(**form_values(self.controller.running_config)))
-        except ValueError as exc:
-            self.notice(str(exc))
-        except OSError as exc:
-            self.notice(f"Couldn't save settings: {plain_reason(exc)}")
-        except RuntimeError as exc:
+        except (ValueError, RuntimeError) as exc:
             self.notice(str(exc))
 
     @Slot()

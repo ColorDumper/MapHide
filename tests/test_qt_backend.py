@@ -257,6 +257,18 @@ def test_start_with_saved_settings_that_arent_ready_says_why_in_the_field_log(h)
     assert h.backend.controller.history[-1].code == HISTORY_NOTICE
 
 
+def test_start_that_maphide_refuses_says_why_in_the_field_log(h):
+    save_form(h.backend)
+
+    def refuse(cfg):
+        raise RuntimeError("Service is already running.")
+
+    h.service.start = refuse
+    h.backend.primary()
+
+    assert h.lines[-1][1:] == ("> Service is already running.", "warning")
+
+
 def test_start_runs_the_worker_with_the_saved_settings(h):
     save_form(h.backend, hotkey="M")
 

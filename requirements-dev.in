@@ -9,3 +9,9 @@ pip-tools==7.6.2
 pyinstaller==6.22.3
 pytest==9.2.0
 ruff==0.17.4
+# Windows-only packages that pytest and pyinstaller pull in. Listed here so
+# they stay in requirements-dev.txt even when it is regenerated on another
+# system, since installing with --require-hashes needs every one of them.
+colorama==0.4.6
+pefile==2024.8.26
+pywin32-ctypes==0.2.3

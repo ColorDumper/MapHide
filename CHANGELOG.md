@@ -2,72 +2,47 @@
 
 All notable changes to MapHide are documented here.
 
-## v0.3.0 - 2026-11-13
+## [v0.3.0](https://github.com/ColorDumper/MapHide/compare/v0.2.6...v0.3.0) - 2026-11-13
 
-- Fixed MapHide staying open in the background for several seconds, without
-  hiding the overlay in OBS, when it was closed right after saving settings
-  while connected.
-- Fixed changing "Connect on startup", or saving settings that don't affect
-  the overlay, briefly dropping the OBS connection and hiding the overlay.
-- Changed the app icon to a map with a red X, sharp at every size from the
-  tray to the taskbar.
-- Changed the window to a new design with new fonts. Settings now open over
-  the main screen instead of widening the window.
-- Added a map preview to the main screen that shows whether your map is
-  covered. Its animation pauses while another window is in front, so MapHide
-  uses no extra CPU while you play.
-- Added the live OBS scene and your key mode to the top of the main screen.
-- Added a field log to the main screen: a short running record of what
-  MapHide is doing. It never shows your OBS address.
-- Added a test button to the main screen that shows and hides the overlay the
-  same way your key does.
-- Added a Test Link button to Settings, which checks your OBS details without
-  starting MapHide.
-- Added the number of scenes that carry your overlay source to Settings,
-  shown after Test Link or while connected.
-- Added two themes, Field and Legacy (the previous colors), chosen in
-  Settings.
-- Added a link to MapHide's GitHub page in Settings, under About.
-- Changed the empty-password warning to text next to the Password field
-  instead of an icon.
-- Changed the debug log option to a switch under Behavior in Settings.
-- Changed the download size to about 27 MB for the installer, or 35 MB for the
-  zip, because of the new window.
-- Added Enter and Esc as ways to finish typing in a text field.
-- Changed launching MapHide while it's already running to bring the open
-  window to the front, even from the tray, instead of showing a notice.
-- Added `MapHide.exe --quit`, which closes a running MapHide the same way
-  Exit in the tray does.
-- Fixed the overlay staying visible in OBS when Windows signed out, restarted
-  or shut down while MapHide was running.
-- Added an installer, which adds MapHide to the Start menu and to Installed
-  apps in Windows. Uninstalling asks whether to keep your settings.
-- Added a Check for updates button under About in Settings. When a new
-  version is out, Update installs it and reopens MapHide with your settings
-  kept.
-- Added a Check for updates switch under Behavior in Settings, on by default,
-  which looks for a new version when MapHide opens. The field log says when
-  one is out.
-- Fixed your settings being lost if the PC crashed or lost power while
-  MapHide was saving them.
-- Fixed Reset in Settings, while MapHide was running, trying to connect with
-  empty settings and ending on a connection error. Reset now stops MapHide.
-- Changed Settings so only Save keeps a change: closing Settings without
-  Save puts your saved settings back, and Start uses your saved settings
-  instead of saving what's in Settings. Settings shows Unsaved changes while
-  you have any.
-- Added a warning when you click Reset while MapHide is running, saying that
-  Reset disconnects MapHide from OBS.
-- Fixed MapHide refusing to open after it was closed, saying it was already
-  running, while an earlier "already running" message was still open.
-- Fixed MapHide starting again when you saved settings right after pressing
-  Stop.
-- Changed Host, Port and Password to hide again whenever you close Settings
-  or MapHide goes to the tray, so they never stay shown on stream.
-- Fixed MapHide only saying it stopped, when you pressed Stop while it was
-  reconnecting and the overlay might still be showing in OBS.
-- Fixed Settings accepting an OBS port outside 1 to 65535, which could never
-  connect. It now says the port must be in that range.
+### Added
+
+- Added a map preview to the main screen that shows whether your map is covered. Its animation pauses while another window is in front, so MapHide uses no extra CPU while you play. ([449c02f](https://github.com/ColorDumper/MapHide/commit/449c02fd25fdf81d93208e261ae2ab8ec3aeaea6), [c811908](https://github.com/ColorDumper/MapHide/commit/c8119085f4ca765ea471c5e4e701e041889a5dbf))
+- Added the live OBS scene and your key mode to the top of the main screen. ([449c02f](https://github.com/ColorDumper/MapHide/commit/449c02fd25fdf81d93208e261ae2ab8ec3aeaea6), [c811908](https://github.com/ColorDumper/MapHide/commit/c8119085f4ca765ea471c5e4e701e041889a5dbf), [f49923f](https://github.com/ColorDumper/MapHide/commit/f49923f9293d886ec3988a8848a156be13a4a6c0))
+- Added a field log to the main screen: a short running record of what MapHide is doing. It never shows your OBS address. ([95d742e](https://github.com/ColorDumper/MapHide/commit/95d742e8bea53810f90f84a18808406652ee0fb9), [c811908](https://github.com/ColorDumper/MapHide/commit/c8119085f4ca765ea471c5e4e701e041889a5dbf))
+- Added a test button to the main screen that shows and hides the overlay the same way your key does. ([06e00ff](https://github.com/ColorDumper/MapHide/commit/06e00ff5bf5c5d0c43742a6b907c46b0279612af), [c811908](https://github.com/ColorDumper/MapHide/commit/c8119085f4ca765ea471c5e4e701e041889a5dbf))
+- Added a Test Link button to Settings, which checks your OBS details without starting MapHide. ([9e49069](https://github.com/ColorDumper/MapHide/commit/9e490693e007e7373e9127b26e7e57616f7e8c57), [5c4bcb6](https://github.com/ColorDumper/MapHide/commit/5c4bcb678d019823ab014230ab198e33662ad30c))
+- Added the number of scenes that carry your overlay source to Settings, shown after Test Link or while connected. ([449c02f](https://github.com/ColorDumper/MapHide/commit/449c02fd25fdf81d93208e261ae2ab8ec3aeaea6), [9e49069](https://github.com/ColorDumper/MapHide/commit/9e490693e007e7373e9127b26e7e57616f7e8c57), [5c4bcb6](https://github.com/ColorDumper/MapHide/commit/5c4bcb678d019823ab014230ab198e33662ad30c))
+- Added two themes, Field and Legacy (the previous colors), chosen in Settings. ([f3a99ad](https://github.com/ColorDumper/MapHide/commit/f3a99ad6292374a606bb20b190a31c727fb85627), [5c4bcb6](https://github.com/ColorDumper/MapHide/commit/5c4bcb678d019823ab014230ab198e33662ad30c))
+- Added a link to MapHide's GitHub page in Settings, under About. ([5c4bcb6](https://github.com/ColorDumper/MapHide/commit/5c4bcb678d019823ab014230ab198e33662ad30c))
+- Added Enter and Esc as ways to finish typing in a text field. ([410d17f](https://github.com/ColorDumper/MapHide/commit/410d17fc8b96cb4143e2d3e663fc7e88a07e5c1f))
+- Added `MapHide.exe --quit`, which closes a running MapHide the same way Exit in the tray does. ([af37dce](https://github.com/ColorDumper/MapHide/commit/af37dceca8bc34aa8581a9892c3307c0e95b20aa))
+- Added an installer, which adds MapHide to the Start menu and to Installed apps in Windows. Uninstalling asks whether to keep your settings. ([aeb5392](https://github.com/ColorDumper/MapHide/commit/aeb539254f26d2de7f3bed2cdfabd8b20b531218))
+- Added a Check for updates button under About in Settings. When a new version is out, Update installs it and reopens MapHide with your settings kept. ([9879289](https://github.com/ColorDumper/MapHide/commit/987928959735c560d70381d3c02b0ef3704c0383))
+- Added a Check for updates switch under Behavior in Settings, on by default, which looks for a new version when MapHide opens. The field log says when one is out. ([9879289](https://github.com/ColorDumper/MapHide/commit/987928959735c560d70381d3c02b0ef3704c0383))
+- Added a warning when you click Reset while MapHide is running, saying that Reset disconnects MapHide from OBS. ([048d310](https://github.com/ColorDumper/MapHide/commit/048d310dd2fa9fa3ed25c4e7e83ed216459b4ccd))
+
+### Changed
+
+- Changed the app icon to a map with a red X, sharp at every size from the tray to the taskbar. ([2407583](https://github.com/ColorDumper/MapHide/commit/2407583c7106298bbbadeb9778670cf8824b5c24))
+- Changed the window to a new design with new fonts. Settings now open over the main screen instead of widening the window. ([348c7b8](https://github.com/ColorDumper/MapHide/commit/348c7b850fb8b3438f5c5740c5c6b852967097df), [c811908](https://github.com/ColorDumper/MapHide/commit/c8119085f4ca765ea471c5e4e701e041889a5dbf), [5c4bcb6](https://github.com/ColorDumper/MapHide/commit/5c4bcb678d019823ab014230ab198e33662ad30c), [4da7733](https://github.com/ColorDumper/MapHide/commit/4da7733890d7fcbf94c4032ed257fab91c1e59e1))
+- Changed the empty-password warning to text next to the Password field instead of an icon. ([5c4bcb6](https://github.com/ColorDumper/MapHide/commit/5c4bcb678d019823ab014230ab198e33662ad30c))
+- Changed the debug log option to a switch under Behavior in Settings. ([5c4bcb6](https://github.com/ColorDumper/MapHide/commit/5c4bcb678d019823ab014230ab198e33662ad30c))
+- Changed the download size to about 27 MB for the installer, or 35 MB for the zip, because of the new window. ([4da7733](https://github.com/ColorDumper/MapHide/commit/4da7733890d7fcbf94c4032ed257fab91c1e59e1), [aeb5392](https://github.com/ColorDumper/MapHide/commit/aeb539254f26d2de7f3bed2cdfabd8b20b531218))
+- Changed launching MapHide while it's already running to bring the open window to the front, even from the tray, instead of showing a notice. ([af37dce](https://github.com/ColorDumper/MapHide/commit/af37dceca8bc34aa8581a9892c3307c0e95b20aa), [05c300a](https://github.com/ColorDumper/MapHide/commit/05c300ae686152b909bbdaa5f58c5295c99b079d))
+- Changed Settings so only Save keeps a change: closing Settings without Save puts your saved settings back, and Start uses your saved settings instead of saving what's in Settings. Settings shows Unsaved changes while you have any. ([2358b43](https://github.com/ColorDumper/MapHide/commit/2358b4335aa386231aca58623028f00d414de6ac))
+- Changed Host, Port and Password to hide again whenever you close Settings or MapHide goes to the tray, so they never stay shown on stream. ([3573b98](https://github.com/ColorDumper/MapHide/commit/3573b9829341115610980b96d2b1e9b6cee0c048))
+
+### Fixed
+
+- Fixed MapHide staying open in the background for several seconds, without hiding the overlay in OBS, when it was closed right after saving settings while connected. ([25cb0b3](https://github.com/ColorDumper/MapHide/commit/25cb0b3195c7613b974093c630543cf03e395869))
+- Fixed changing "Connect on startup", or saving settings that don't affect the overlay, briefly dropping the OBS connection and hiding the overlay. ([1639be2](https://github.com/ColorDumper/MapHide/commit/1639be2e4911c8341da5d1b2a2ef1e0044b997cf))
+- Fixed the overlay staying visible in OBS when Windows signed out, restarted or shut down while MapHide was running. ([af37dce](https://github.com/ColorDumper/MapHide/commit/af37dceca8bc34aa8581a9892c3307c0e95b20aa))
+- Fixed your settings being lost if the PC crashed or lost power while MapHide was saving them. ([3515bc1](https://github.com/ColorDumper/MapHide/commit/3515bc1de537a7ef9d794a54276d4611e5da70d6))
+- Fixed Reset in Settings, while MapHide was running, trying to connect with empty settings and ending on a connection error. Reset now stops MapHide. ([8963d99](https://github.com/ColorDumper/MapHide/commit/8963d99ef2c3a455f31a189fedc3ca55e840f3df))
+- Fixed MapHide refusing to open after it was closed, saying it was already running, while an earlier "already running" message was still open. ([05c300a](https://github.com/ColorDumper/MapHide/commit/05c300ae686152b909bbdaa5f58c5295c99b079d))
+- Fixed MapHide starting again when you saved settings right after pressing Stop. ([18c5f7c](https://github.com/ColorDumper/MapHide/commit/18c5f7c8622fa6a572a6ccbe76e3dea2e5082eea))
+- Fixed MapHide only saying it stopped, when you pressed Stop while it was reconnecting and the overlay might still be showing in OBS. ([2d9c46d](https://github.com/ColorDumper/MapHide/commit/2d9c46d9a1c43cd2a803d364cc61b647de8d6a3b))
+- Fixed Settings accepting an OBS port outside 1 to 65535, which could never connect. It now says the port must be in that range. ([96b2c32](https://github.com/ColorDumper/MapHide/commit/96b2c32c9ba6438de5f7e628a80347c1f7b07d67))
 
 ## v0.2.6 - 2026-10-27
 

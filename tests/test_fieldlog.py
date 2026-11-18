@@ -137,7 +137,7 @@ def test_a_stop_after_an_unexpected_error_says_so():
 def test_no_connection_line_ever_names_the_obs_address():
     # The window may be captured on stream, so the streaming PC's address
     # must not appear in it even if a message happens to mention it.
-    message = "Failed to connect to 192.168.1.42:4455"
+    message = "Failed to connect to 198.51.100.42:4455"
     for code in (EVENT_CONNECTED, EVENT_CONNECT_FAILED, EVENT_LINK_LOST, EVENT_STOPPED):
         assert "192.168" not in line(code, message).text
 

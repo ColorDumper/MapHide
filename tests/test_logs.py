@@ -141,7 +141,7 @@ def test_describe_exception_gives_type_message_and_place_without_the_home_folder
 def test_describe_cause_names_the_underlying_failure_and_its_code():
     try:
         try:
-            raise ConnectionResetError(10054, "reset by peer, host 10.0.0.2")
+            raise ConnectionResetError(10054, "reset by peer, host 192.0.2.2")
         except OSError as inner:
             raise RuntimeError("outer") from inner
     except RuntimeError as exc:

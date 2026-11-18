@@ -17,7 +17,7 @@ from maphide.overlay import CONNECTED, RECONNECTING, ServiceStatus  # noqa: E402
 from maphide.qt.app import Backend, build_window  # noqa: E402
 from maphide.qt.view import RESET_DISCONNECTS, RESET_STOPS  # noqa: E402
 
-SAVED = {"host": "10.0.0.2", "port": "4455", "scene_item_name": "Overlay"}
+SAVED = {"host": "192.0.2.2", "port": "4455", "scene_item_name": "Overlay"}
 
 
 @pytest.fixture
@@ -89,7 +89,7 @@ def test_typing_in_a_field_changes_the_form(setup):
 
     type_into(window, host_field(window), "9")
 
-    assert backend.form["host"] == "10.0.0.29"
+    assert backend.form["host"] == "192.0.2.29"
 
 
 def test_closing_settings_puts_the_typed_field_back(setup):

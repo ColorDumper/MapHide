@@ -37,7 +37,7 @@ from maphide.overlay import (
 
 def make_config(**overrides):
     values = {
-        "host": "10.0.0.2",
+        "host": "192.0.2.2",
         "port": 4455,
         "password": "",
         "scene_item_name": "Overlay",
@@ -482,7 +482,7 @@ def test_the_test_button_is_passed_to_the_worker(h):
     assert h.service.manual_inputs == [True, False]
 
 
-def run_check(h, check, host="10.0.0.2", port="4455", source=" Overlay "):
+def run_check(h, check, host="192.0.2.2", port="4455", source=" Overlay "):
     results = []
     controller = AppController(schedule=h.schedule, service=h.service, check=check)
     started = controller.check_connection(host, port, "pw", source, results.append)
@@ -507,7 +507,7 @@ def test_a_connection_check_reports_back_on_the_windows_thread(h):
     assert controller.checking_connection is True
     finish_check(h, controller)
 
-    assert calls == [("10.0.0.2", 4455, "pw", "Overlay")]
+    assert calls == [("192.0.2.2", 4455, "pw", "Overlay")]
     assert results == [ConnectionCheck(ok=True, source_scene_count=2)]
     assert controller.checking_connection is False
 
@@ -516,7 +516,7 @@ def test_a_connection_check_with_an_unusable_port_says_so_without_trying(h):
     controller = AppController(schedule=h.schedule, service=h.service, check=None)
 
     with pytest.raises(ValueError, match="OBS Port must be a number."):
-        controller.check_connection("10.0.0.2", "44a5", "", "", lambda _result: None)
+        controller.check_connection("192.0.2.2", "44a5", "", "", lambda _result: None)
     assert controller.checking_connection is False
 
 
@@ -524,7 +524,7 @@ def test_test_link_refuses_a_port_out_of_range_without_trying(h):
     controller = AppController(schedule=h.schedule, service=h.service, check=None)
 
     with pytest.raises(ValueError, match="between 1 and 65535"):
-        controller.check_connection("10.0.0.2", "70000", "", "", lambda _result: None)
+        controller.check_connection("192.0.2.2", "70000", "", "", lambda _result: None)
     assert controller.checking_connection is False
 
 
@@ -536,7 +536,7 @@ def test_only_one_connection_check_runs_at_a_time(h):
         return ConnectionCheck(ok=True)
 
     controller, results, _ = run_check(h, slow_check)
-    assert controller.check_connection("10.0.0.2", "4455", "", "", results.append) is False
+    assert controller.check_connection("192.0.2.2", "4455", "", "", results.append) is False
 
     release.set()
     finish_check(h, controller)

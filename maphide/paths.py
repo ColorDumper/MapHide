@@ -13,7 +13,18 @@ else:
     # entry point are in the parent directory.
     APP_DIR = Path(__file__).resolve().parent.parent
 APP_NAME = "MapHide"
-CONFIG_DIR = Path(os.getenv("APPDATA", APP_DIR)) / APP_NAME
+
+
+def config_dir(environ=os.environ, home=Path.home):
+    """MapHide's settings folder, in the user's AppData\\Roaming. Found from
+    the home folder when the APPDATA variable is missing, so settings never
+    land in the program's own folder."""
+    appdata = environ.get("APPDATA")
+    root = Path(appdata) if appdata else home() / "AppData" / "Roaming"
+    return root / APP_NAME
+
+
+CONFIG_DIR = config_dir()
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LEGACY_CONFIG_PATH = APP_DIR / "config.json"
 ICON_ICO_PATH = APP_DIR / "MapHide.ico"

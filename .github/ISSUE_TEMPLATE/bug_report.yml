@@ -1,0 +1,30 @@
+name: Bug report
+description: Something in MapHide doesn't work as it should.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: MapHide version
+      description: Shown next to the name at the top of the window, for example v0.3.0.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Key mode
+      options: [Hold, Toggle]
+  - type: textarea
+    id: log
+    attributes:
+      label: Debug log
+      description: >-
+        Turn on Debug log under Behavior in Settings, click Save, make the problem happen,
+        then drag %AppData%\MapHide\maphide-debug.log here. It never contains your OBS password.

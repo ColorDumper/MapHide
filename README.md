@@ -1,254 +1,246 @@
-# MapHide
+<p align="center">
+  <img src="docs/images/MapHide_Logo.png" width="160" alt="MapHide logo"><br>
+  <b>MapHide</b><br>
+  Cover your in-game map on stream with one key, from your gaming PC.
+</p>
 
-MapHide is a lightweight OBS map hider built mainly for dual-PC live streaming setups.
+<p align="center">
+  <a href="https://github.com/ColorDumper/MapHide/releases/latest"><img src="https://img.shields.io/github/v/release/ColorDumper/MapHide?label=release" alt="Latest release"></a>
+  <a href="https://github.com/ColorDumper/MapHide/releases"><img src="https://img.shields.io/github/downloads/ColorDumper/MapHide/total" alt="Total downloads"></a>
+  <a href="https://github.com/ColorDumper/MapHide/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ColorDumper/MapHide/build.yml?branch=main" alt="Build status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ColorDumper/MapHide" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/platform-Windows-0078D6" alt="Windows">
+</p>
 
-It started as a Rust map hider, but it has grown into a flexible map-hiding tool for any game where streamers need to cover a map, GPS, or similar sensitive screen element. MapHide runs on the gaming PC, listens for your selected keybind, then tells OBS on the streaming PC to show or hide your map-hiding overlay source.
+<p align="center">
+  <a href="https://github.com/ColorDumper/MapHide/releases/latest"><img src="https://img.shields.io/badge/Download-2ea44f?style=for-the-badge" alt="Download MapHide"></a>
+</p>
 
-## Demo
+<p align="center">
+  <img src="docs/images/main-covered.png" width="400" alt="The MapHide window, linked to OBS with the map covered">
+</p>
 
-Watch MapHide in action here:
+MapHide runs on your gaming PC and listens for your map key. When you open the map in game, it tells OBS on your streaming PC to show a cover over it, and hides the cover again when you close the map. It works with any game where viewers shouldn't see your map, GPS or a similar part of the screen.
 
-[![MapHide Demo Video](https://img.youtube.com/vi/zBLLD3BhpmE/maxresdefault.jpg)](https://www.youtube.com/watch?v=zBLLD3BhpmE)
-
-## Important Setup Note
-
-For a normal dual-PC setup:
-
-- **Gaming PC**: install and run MapHide here
-- **Streaming PC**: run OBS here and enable OBS WebSocket here
-
-MapHide is usually **not** meant to run on the streaming PC in a dual-PC setup. The gaming PC is the machine that detects your key press, then sends the command over your local network to OBS on the streaming PC.
+- [Features](#features)
+- [See it in action](#see-it-in-action)
+- [Quick start](#quick-start)
+- [Full dual-PC setup](#full-dual-pc-setup)
+- [Keys](#keys)
+- [Updating and uninstalling](#updating-and-uninstalling)
+- [Troubleshooting](#troubleshooting)
+- [Settings file and debug log](#settings-file-and-debug-log)
+- [Anti-cheat](#anti-cheat)
 
 ## Features
 
-- Lightweight Windows desktop app
-- Flexible map/privacy overlay control for many games
-- Built for dual-PC OBS workflows
-- Works through OBS WebSocket
-- Automatically follows the current OBS program scene
-- Controls the same source name across multiple OBS scenes
-- Hold mode for games where the map is only open while holding a key
-- Toggle mode for games where the map opens and closes with key presses
-- Configurable hide delay slider to reduce brief map flashes during close animations
-- Configurable keybinds
-- Auto-connect on startup option
-- Hide-to-tray behavior with tray menu
-- A map preview that shows whether your map is covered, the live OBS scene, and a log of what MapHide is doing
-- Test Link button that checks your OBS details and counts the scenes carrying your overlay source
-- Test button to show and hide the overlay without switching to your game
-- Two dark themes, Field and Legacy
-- Sensitive OBS fields hidden by default, each with its own show button
-- Reset defaults button with double-click confirmation
-- Settings saved to the user's AppData folder
+- **Hold or toggle.** Hold mode covers the map while you hold your key. Toggle mode covers it on one press and uncovers it on the next, or uses a separate hide key such as `Esc`.
+- **Follows your scenes.** MapHide follows the live OBS scene and controls the same source in every scene that has it.
+- **No flash on close.** A hide delay keeps the cover up through a map's closing animation.
+- **See what's happening.** The window shows the OBS link, the live scene, whether your map is covered, and a short log. It never shows your OBS address.
+- **Test without the game.** Test Link checks your OBS details, and the Hold G to test button covers and uncovers the map the same way your key does.
+- **Stays out of the way.** Closes to the tray, can connect when it opens, reconnects if OBS restarts, and its preview animation pauses while your game is in front.
+- **Updates itself.** Check for updates in Settings installs a new version and keeps your settings.
 
-## Keybind Support
+## See it in action
 
-MapHide keeps keybind support intentionally simple for reliability.
+MapHide covering the map in Rust, with OBS on the streaming PC and the game on the gaming PC:
 
-- **Hold mode show key**: `A-Z`
-- **Toggle mode show key**: `A-Z`
-- **Toggle mode hide key**: `A-Z`, `Esc`, `Shift`, or `Shift + A-Z`
+[![MapHide demo video](https://img.youtube.com/vi/zBLLD3BhpmE/maxresdefault.jpg)](https://www.youtube.com/watch?v=zBLLD3BhpmE)
 
-The hide key supports `Esc` and `Shift + letter` because some games use one key to open the map and a different key or shortcut to close it. In toggle mode, setting the show key and hide key to the same key makes each press flip the overlay on or off.
+## Quick start
 
-MapHide reads your keys no matter which window is in focus, so your show and hide keys also trigger it while you are typing in game chat, Discord, or a browser. Keep that in mind when choosing them.
+For the usual setup: OBS on a streaming PC, your game on a gaming PC, both on the same network.
 
-## Anti-cheat
+1. **On the streaming PC**, open OBS, go to `Tools > WebSocket Server Settings`, turn on the server and note the port (default `4455`) and the password.
+2. **On the streaming PC**, add the source that covers your map (an image, for example) to every scene you stream from, and give it a name you can type exactly, such as `MapHide Overlay`.
+3. **On the gaming PC**, download `MapHide-vX.Y.Z-setup.exe` from the [latest release](https://github.com/ColorDumper/MapHide/releases/latest) and run it. If Windows says it protected your PC, click More info, then Run anyway.
+4. Open MapHide, click Settings and enter the streaming PC's local IP address, the port, the password and the source name. Click Test Link to check them, then Save.
+5. Close Settings, click Start, and hold the Hold G to test button. The cover should appear in OBS.
 
-MapHide only **reads** global key state through a standard Windows API — the same mechanism many streaming and macro tools use to check whether a key is held. It does not inject keystrokes, hook into the game, read or write game memory, or touch any game files.
+Not working? See the [full setup](#full-dual-pc-setup) and [troubleshooting](#troubleshooting).
 
-It is an unsigned executable that polls the keyboard continuously, which is behavior a kernel-level anti-cheat could in principle treat as suspicious. Using it is at your own discretion.
+MapHide can also run on a single PC with OBS, but it is built for two. On one PC, an OBS script may be simpler.
 
-## Requirements
+## Full dual-PC setup
 
-- Windows
-- OBS Studio on the streaming PC
-- OBS WebSocket enabled on the streaming PC
-- A source in OBS that you want MapHide to show and hide
+MapHide runs on the **gaming PC**, where it reads your key. OBS runs on the **streaming PC**, where MapHide tells it to show or hide the cover over your local network. MapHide is not meant to run on the streaming PC.
+
+You need:
+
+- Windows 11 on the gaming PC (Windows 10, version 1809 or later, should work too, but hasn't been tested yet)
+- OBS Studio on the streaming PC (WebSocket is built into OBS 28 and later, so there's nothing extra to install)
+- A source in OBS that covers your map
 - Both PCs on the same local network
 
-OBS WebSocket is built into modern OBS Studio versions, so most users do not need to install a separate WebSocket plugin.
-
-## Dual-PC Setup Guide
-
-### 1. Streaming PC: Enable OBS WebSocket
-
-On the **streaming PC**:
+### 1. Streaming PC: turn on the OBS WebSocket server
 
 1. Open OBS Studio.
-2. Go to `Tools > obs-websocket Settings`.
-3. Enable the WebSocket server.
-4. Confirm the server port.
-5. The default OBS WebSocket port is usually `4455`.
-6. Set or confirm the WebSocket password — ideally one you do not use anywhere else.
-7. Apply/save the OBS WebSocket settings.
+2. Go to `Tools > WebSocket Server Settings`.
+3. Turn on the WebSocket server.
+4. Note the server port (default `4455`).
+5. Set a password, ideally one you don't use anywhere else.
+6. Click Apply.
 
-### 2. Streaming PC: Create The Overlay Source
+### 2. Streaming PC: create the cover source
 
-On the **streaming PC**:
+1. In OBS, add the source you want MapHide to show and hide.
+2. Give it a name that's easy to type exactly, such as `MapHide Overlay`.
+3. Add that same source to every scene where you want MapHide to work. Add it to each scene directly: a source inside a group, or shown through a nested scene, isn't found.
+4. Make sure it covers the map area in your game.
 
-1. In OBS, create or add the source you want MapHide to control.
-2. Name the source something easy to type exactly, such as `MapHide Overlay`.
-3. Add that same source name to every scene where you want MapHide to work. Add it directly to each scene: a source placed inside a group, or shown through a nested scene, won't be found.
-4. Make sure the source can cover the map area correctly.
+If you need a cover image, you can make your own or use a community one. One source is [Sendox on YouTube](https://www.youtube.com/@sendox).
 
-If you need overlay assets, you can create your own or use community-made overlays. One useful source is [Sendox on YouTube](https://www.youtube.com/@sendox).
-
-### 3. Streaming PC: Find The Local IP Address
-
-On the **streaming PC**:
+### 3. Streaming PC: find its local IP address
 
 1. Open Command Prompt or PowerShell.
-2. Run:
+2. Run `ipconfig`.
+3. Note the IPv4 address of the network adapter you're using, such as `192.168.0.10`.
 
-```powershell
-ipconfig
-```
+That address is what MapHide connects to.
 
-3. Look for the local IPv4 address on your active network adapter.
+### 4. Gaming PC: install and set up MapHide
 
-Example:
+1. Download `MapHide-vX.Y.Z-setup.exe` from the [latest release](https://github.com/ColorDumper/MapHide/releases/latest) and run it. MapHide is not code-signed, so Windows may show "Windows protected your PC": click More info, then Run anyway.
+2. Open MapHide from the Start menu and click Settings.
+3. Enter the streaming PC's OBS details:
+   - **Host**: the streaming PC's local IP address
+   - **Port**: the OBS WebSocket port (default `4455`)
+   - **Password**: the OBS WebSocket password
+   - **OBS Source Name**: the exact name of the cover source in OBS
+4. Click Test Link. MapHide connects to OBS once and tells you how many scenes have your source.
+5. Choose Hold if your game's map is open only while you hold a key, or Toggle if it opens and closes with key presses.
+6. Click the key cap and press the key you open the map with.
+7. Adjust the hide delay if needed, then click Save.
 
-```text
-IPv4 Address . . . . . . . . . . : YOUR_STREAMING_PC_IP
-```
+<p align="center">
+  <img src="docs/images/settings.png" width="360" alt="MapHide's Settings, with the OBS details hidden">
+</p>
 
-This local IP address is what MapHide should connect to from the gaming PC.
+### 5. Test it
 
-### 4. Streaming PC: Allow OBS Through Windows Firewall
+1. Close Settings and click Start.
+2. Hold the Hold G to test button (it says Press in toggle mode, and shows your own key). The cover should appear in OBS, and the map preview in MapHide shows Covered.
+3. Switch between OBS scenes that have the source, and try again.
+4. Open your game and press your map key. The cover should appear and hide in OBS.
 
-If MapHide cannot connect, Windows Firewall may be blocking OBS WebSocket.
+If the map shows for a split second as it closes, raise the hide delay a little.
 
-On the **streaming PC**:
+<details>
+<summary><b>If it can't connect: the streaming PC's firewall</b></summary>
+
+If MapHide can't connect while both PCs are on the same network and the password is right, Windows Firewall on the streaming PC may be blocking OBS.
 
 1. Open Windows Security.
-2. Go to `Firewall & network protection`.
-3. Click `Allow an app through firewall`.
-4. Make sure OBS Studio is allowed on the network profile you are using.
-5. If needed, create an inbound rule for TCP port `4455`.
+2. Go to Firewall & network protection.
+3. Click Allow an app through firewall.
+4. Make sure OBS Studio is allowed on the network profile you're using.
+5. If that isn't enough, add an inbound rule for TCP port `4455`.
 
-You usually only need this if both PCs are on the same network, the password is correct, and MapHide still cannot connect.
+</details>
 
-### 5. Gaming PC: Configure MapHide
+## Keys
 
-On the **gaming PC**:
+- **Hold mode**: any letter, `A` to `Z`.
+- **Toggle mode, show key**: any letter, `A` to `Z`.
+- **Toggle mode, hide key**: a letter, `Esc`, `Shift`, or `Shift` plus a letter.
 
-1. Download `MapHide-<version>-setup.exe` from the [Releases page](https://github.com/ColorDumper/MapHide/releases/latest), run it, then open MapHide from the Start menu.
-2. Click `SETTINGS`.
-3. Enter the streaming PC OBS details:
-   - **Host**: the streaming PC local IP address
-   - **Port**: the OBS WebSocket port, usually `4455`
-   - **Password**: the OBS WebSocket password
-   - **OBS Source Name**: the exact OBS source name from the streaming PC
-4. Click `TEST LINK`. MapHide connects to OBS once and tells you how many scenes carry your source.
-5. Choose your keybind mode:
-   - Use **Hold** if your game map is open only while holding a key.
-   - Use **Toggle** if your game map opens and closes with key presses.
-6. Adjust the hide delay if needed.
-7. Click `SAVE`.
-8. Close the settings and click `START`.
+The hide key can be `Esc` or `Shift` plus a letter because some games open the map with one key and close it with another. In toggle mode, using the same key for both makes each press switch the cover on or off.
 
-### 6. Test The Setup
+MapHide reads your keys whichever window is in front, so they also work while you type in game chat, Discord or a browser. Keep that in mind when choosing them.
 
-After clicking `START`:
+## Updating and uninstalling
 
-1. Open OBS on the streaming PC.
-2. Hold the `HOLD G TO TEST` button in MapHide (it says `PRESS` in toggle mode, and shows your own key). The overlay should appear in OBS, and the map preview in MapHide shows `COVERED`.
-3. Switch between OBS scenes that contain the same overlay source name, and try again.
-4. Open the game on the gaming PC and press your map key.
-5. Confirm the overlay appears and hides correctly in OBS.
+MapHide checks for a new version each time it opens (turn this off with Check for updates under Behavior in Settings). When one is out, the log says so: click Update under About in Settings, and MapHide closes, updates and opens again with your settings kept. You can also run a newer setup file yourself.
 
-If the map flashes for a split second when closing, raise the hide delay slightly.
+**Coming from v0.2.6 or older** (the zip): close the old MapHide, then run the setup file once. Your settings carry over, and you can delete the old folder afterwards.
 
-## Config Location
+**Rather not install it?** Each release also has `MapHide-vX.Y.Z-win64.zip`: unzip it anywhere and run `MapHide.exe`. This copy doesn't update itself. When a new version is out, Get it under About in Settings opens the download page.
 
-MapHide stores your settings here:
+To remove MapHide, use Settings > Apps > Installed apps in Windows. It asks whether to keep your settings.
 
-```text
-%AppData%\MapHide\config.json
-```
-
-Example:
-
-```text
-C:\Users\YourName\AppData\Roaming\MapHide\config.json
-```
-
-You never need to edit this by hand — MapHide writes it when you click `SAVE`. If you want to start over, click `RESET` in the settings, then click it again to confirm.
-
-This file is plain text, and that includes your OBS WebSocket password — any program running as your Windows user can read it (OBS stores its own copy the same way). The MapHide-to-OBS connection also crosses your local network unencrypted. For both reasons, use a WebSocket password that you do not reuse anywhere else.
-
-## Debug Log
-
-If MapHide is misbehaving and you want to report it, turn on **Debug log** under Behavior in the settings, click `SAVE`, and reproduce the problem. MapHide then writes what it is doing — connecting, scene changes, show and hide actions, and errors — to:
-
-```text
-%AppData%\MapHide\maphide-debug.log
-```
-
-The log never contains your OBS password. It is off by default, starts fresh each time you open MapHide (the previous two runs are kept next to it as `maphide-debug.1.log` and `maphide-debug.2.log`), and stays small. Turn the switch off again to stop logging.
-
-## Notes
-
-- The OBS host, port, and password are hidden by default in the UI.
-- If OBS is closed after MapHide has connected, MapHide will try to reconnect automatically.
-- If the initial OBS settings are incorrect, MapHide will wait for you to fix the settings and save again.
-- Launching MapHide while it's already running brings the open window to the front instead of starting a second copy.
-- To close MapHide from a script or installer, run `MapHide.exe --quit`. It hides the overlay first, the same way `Exit` in the tray does.
-- Closing the window hides MapHide to the system tray.
-- To fully close MapHide, right-click the tray icon and click `Exit`.
-- Windows may show a SmartScreen or "Unknown publisher" warning when opening the app because it is not code-signed. Click `More info`, then `Run anyway`.
-- MapHide can work on a single-PC setup, but it is mainly built for dual-PC streaming. For a single-PC workflow, an OBS script may be a simpler option depending on your setup.
+What changed in each version is in the [changelog](CHANGELOG.md).
 
 ## Troubleshooting
 
-### MapHide says it cannot connect to OBS
+<details>
+<summary><b>MapHide can't connect to OBS</b></summary>
 
 Check these in order:
 
-1. Make sure MapHide is running on the **gaming PC**.
-2. Make sure OBS is running on the **streaming PC**.
-3. On the streaming PC, open `Tools > obs-websocket Settings` and confirm:
-   - the WebSocket server is enabled
-   - the port is correct
-   - the password is correct
-4. Make sure the host in MapHide is the **streaming PC local IP address**, not:
-   - the gaming PC IP
-   - `127.0.0.1`
-   - a public internet IP
-5. Make sure both PCs are on the same local network.
-6. Check Windows Defender Firewall on the **streaming PC**.
-   - Make sure OBS Studio is allowed through the firewall on the network profile you are using.
-   - If needed, allow inbound TCP traffic on the OBS WebSocket port, usually `4455`.
+1. MapHide is running on the **gaming PC**.
+2. OBS is open on the **streaming PC**.
+3. In OBS on the streaming PC, `Tools > WebSocket Server Settings` shows the server turned on, with the port and password you entered.
+4. Host in MapHide is the **streaming PC's local IP address**, not the gaming PC's, not `127.0.0.1` and not a public internet address.
+5. Both PCs are on the same local network.
+6. The streaming PC's firewall allows OBS (see the firewall note at the end of [Full dual-PC setup](#full-dual-pc-setup)).
 
-### MapHide connects, but nothing happens in OBS
+If the details were wrong, MapHide stops and says why. Fix them, click Save, then click Start. If OBS just isn't open yet, MapHide keeps trying on its own.
+
+</details>
+
+<details>
+<summary><b>MapHide connects, but nothing happens in OBS</b></summary>
 
 Check that:
 
-- The source name matches exactly
-- The source exists in the active OBS scene
-- The source exists in every scene you want MapHide to follow
-- The source sits directly in each scene, not inside a group or a nested scene
-- You entered the source name from OBS on the streaming PC
-- The correct keybind mode is selected
-- The keybind was saved after changing it
+- The source name matches the name in OBS exactly.
+- The source is in the live scene, and in every scene you want MapHide to follow.
+- The source sits in each scene directly, not inside a group or a nested scene.
+- The right mode, Hold or Toggle, is chosen.
+- You clicked Save after changing your key.
 
-### The overlay disappears too fast
+Test Link in Settings tells you how many scenes have the source.
 
-Increase the hide delay slider slightly, then click `SAVE`.
+</details>
 
-### The overlay stays on screen too long
+<details>
+<summary><b>The cover disappears too fast, or stays too long</b></summary>
 
-Lower the hide delay slider slightly, then click `SAVE`.
+Raise the hide delay in Settings if your map shows for a moment as it closes, or lower it if the cover stays up too long. Then click Save.
 
-### The app closes when I click the X
+</details>
 
-This is normal behavior. MapHide hides to the system tray instead of fully closing. Use the tray icon menu and click `Exit` to close it fully.
+<details>
+<summary><b>Closing the window doesn't quit MapHide</b></summary>
 
-## Version
+That's on purpose: closing the window keeps MapHide running in the tray. To quit, right-click the tray icon and click Exit. MapHide hides the cover in OBS before it closes.
 
-The latest release and its download are on the [Releases page](https://github.com/ColorDumper/MapHide/releases/latest). MapHide checks for a new version each time it opens (you can turn this off under `BEHAVIOR` in `SETTINGS`). When one is out, click `UPDATE` under `ABOUT`: MapHide closes, updates and opens again, and your settings are kept. You can also run the newer setup file yourself. To remove MapHide, use **Settings > Apps > Installed apps** in Windows, where you can choose whether to keep your settings. What changed in each version is in the [changelog](CHANGELOG.md).
+</details>
+
+<details>
+<summary><b>Opening MapHide again just brings the window back</b></summary>
+
+Only one copy runs at a time. Opening it again brings the open window to the front, even from the tray.
+
+</details>
+
+## Settings file and debug log
+
+<details>
+<summary><b>Where settings are kept</b></summary>
+
+MapHide keeps your settings in `%AppData%\MapHide\config.json`, for example `C:\Users\YourName\AppData\Roaming\MapHide\config.json`. You never need to edit it: MapHide writes it when you click Save. To start over, click Reset in Settings, then click it again to confirm.
+
+This file is plain text, and that includes your OBS WebSocket password: any program running as your Windows user can read it (OBS stores its own copy the same way). The connection between MapHide and OBS also crosses your local network unencrypted. For both reasons, use a WebSocket password you don't use anywhere else.
+
+</details>
+
+<details>
+<summary><b>Turning on the debug log</b></summary>
+
+If MapHide misbehaves and you want to report it, turn on Debug log under Behavior in Settings, click Save, and make the problem happen again. MapHide then writes what it's doing (connecting, scene changes, showing and hiding the cover, and errors) to `%AppData%\MapHide\maphide-debug.log`.
+
+The log never contains your OBS password. It's off by default, starts fresh each time you open MapHide (the two runs before are kept next to it as `maphide-debug.1.log` and `maphide-debug.2.log`), and stays small. Turn the switch off again to stop logging. Attach it when you [report a problem](https://github.com/ColorDumper/MapHide/issues).
+
+</details>
+
+## Anti-cheat
+
+MapHide only **reads** whether a key is down, through a standard Windows function many streaming and macro tools use. It doesn't send keystrokes, hook into the game, read or write game memory, or touch any game files.
+
+It is not code-signed and checks the keyboard continuously, which a kernel-level anti-cheat could in principle treat as suspicious. Use it at your own discretion.
 
 ## Credits
 
-Created by Color Dumper.
+Created by [Color Dumper](https://github.com/ColorDumper). Released under the [MIT license](LICENSE).

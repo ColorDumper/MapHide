@@ -31,7 +31,7 @@ def setup(qt_app):
 
 
 def connect(backend, service, scene, **settings):
-    form = {"host": "10.0.0.2", "port": "4455", "scene_item_name": "Overlay", **settings}
+    form = {"host": "192.0.2.2", "port": "4455", "scene_item_name": "Overlay", **settings}
     for name, value in form.items():
         backend.setField(name, value)
     backend.save()

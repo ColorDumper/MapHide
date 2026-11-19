@@ -237,7 +237,7 @@ def test_a_last_shown_entry_that_dropped_off_means_all_are_new():
 
 
 def test_the_form_round_trips_a_config():
-    cfg = replace(default_config(), host="10.0.0.2", port=4456, scene_item_name="Overlay")
+    cfg = replace(default_config(), host="192.0.2.2", port=4456, scene_item_name="Overlay")
 
     values = form_values(cfg)
 

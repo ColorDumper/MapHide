@@ -106,7 +106,7 @@ def h():
 
 
 def fill_form(backend, **values):
-    defaults = {"host": "10.0.0.2", "port": "4455", "scene_item_name": "Overlay"}
+    defaults = {"host": "192.0.2.2", "port": "4455", "scene_item_name": "Overlay"}
     for name, value in {**defaults, **values}.items():
         backend.setField(name, value)
 
@@ -118,9 +118,9 @@ def save_form(backend, **values):
 
 
 def test_loading_fills_the_form_from_the_saved_settings(h):
-    h.load(lambda: make_config(host="10.0.0.9", port=4456))
+    h.load(lambda: make_config(host="192.0.2.9", port=4456))
 
-    assert h.backend.form["host"] == "10.0.0.9"
+    assert h.backend.form["host"] == "192.0.2.9"
     assert h.backend.form["port"] == "4456"
 
 
@@ -139,21 +139,21 @@ def run_scheduled(h):
 
 
 def test_connect_on_startup_starts_maphide_with_the_saved_settings(h):
-    h.load(lambda: make_config(host="10.0.0.9", auto_connect=True, check_updates=False))
+    h.load(lambda: make_config(host="192.0.2.9", auto_connect=True, check_updates=False))
     assert h.service.started_with == []
 
     run_scheduled(h)
 
-    assert [cfg.host for cfg in h.service.started_with] == ["10.0.0.9"]
+    assert [cfg.host for cfg in h.service.started_with] == ["192.0.2.9"]
 
 
 def test_connect_on_startup_ignores_an_edit_made_before_it_starts(h):
-    h.load(lambda: make_config(host="10.0.0.9", auto_connect=True, check_updates=False))
-    fill_form(h.backend, host="10.0.0.5")
+    h.load(lambda: make_config(host="192.0.2.9", auto_connect=True, check_updates=False))
+    fill_form(h.backend, host="192.0.2.5")
 
     run_scheduled(h)
 
-    assert [cfg.host for cfg in h.service.started_with] == ["10.0.0.9"]
+    assert [cfg.host for cfg in h.service.started_with] == ["192.0.2.9"]
 
 
 def test_maphide_waits_for_start_when_connect_on_startup_is_off(h):
@@ -211,7 +211,7 @@ def test_saving_writes_the_form_and_says_so(h):
 
     h.backend.save()
 
-    assert h.saved[-1].host == "10.0.0.2"
+    assert h.saved[-1].host == "192.0.2.2"
     assert h.saves == [True]
     assert h.lines[-1][1] == "> settings saved"
 
@@ -294,12 +294,12 @@ def test_start_ignores_and_never_saves_unsaved_changes(h):
 
 def test_closing_settings_puts_the_saved_settings_back(h):
     save_form(h.backend, hotkey="M")
-    h.backend.setField("host", "192.168.1.50")
+    h.backend.setField("host", "198.51.100.50")
     h.backend.setField("hotkey", "K")
 
     h.backend.discardChanges()
 
-    assert h.backend.form["host"] == "10.0.0.2"
+    assert h.backend.form["host"] == "192.0.2.2"
     assert h.backend.form["hotkey"] == "M"
     assert h.backend.hasUnsavedChanges is False
 
@@ -328,8 +328,8 @@ def test_a_change_counts_as_unsaved_until_saved(h):
 def test_changing_a_field_back_is_not_an_unsaved_change(h):
     save_form(h.backend)
 
-    h.backend.setField("host", "192.168.1.50")
-    h.backend.setField("host", "10.0.0.2")
+    h.backend.setField("host", "198.51.100.50")
+    h.backend.setField("host", "192.0.2.2")
 
     assert h.backend.hasUnsavedChanges is False
 
@@ -337,7 +337,7 @@ def test_changing_a_field_back_is_not_an_unsaved_change(h):
 def test_spaces_around_a_value_are_not_an_unsaved_change(h):
     save_form(h.backend)
 
-    h.backend.setField("host", "  10.0.0.2 ")
+    h.backend.setField("host", "  192.0.2.2 ")
 
     assert h.backend.hasUnsavedChanges is False
 
@@ -352,7 +352,7 @@ def test_a_captured_key_is_an_unsaved_change(h):
 
 def test_reset_leaves_nothing_unsaved(h):
     save_form(h.backend)
-    h.backend.setField("host", "192.168.1.50")
+    h.backend.setField("host", "198.51.100.50")
 
     h.backend.resetDefaults()
 
@@ -396,7 +396,7 @@ def test_test_link_reports_the_scenes_carrying_the_source(h):
     assert h.backend.testState == "busy"
     h.run_check()
 
-    assert h.checks == [("10.0.0.2", 4455, "", "Overlay")]
+    assert h.checks == [("192.0.2.2", 4455, "", "Overlay")]
     assert h.backend.testState == "ok"
     assert h.backend.sourceText == f"Found in 3 scenes. {SOURCE_FOLLOWS}"
 

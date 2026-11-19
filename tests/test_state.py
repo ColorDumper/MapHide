@@ -15,7 +15,7 @@ def at(ms):
 
 def hold_config(hide_delay_ms=120):
     return AppConfig(
-        host="10.0.0.2",
+        host="192.0.2.2",
         port=4455,
         password="",
         scene_item_name="Overlay",
@@ -28,7 +28,7 @@ def hold_config(hide_delay_ms=120):
 
 def toggle_config(hotkey="M", hide_hotkey="M", hide_delay_ms=120):
     return AppConfig(
-        host="10.0.0.2",
+        host="192.0.2.2",
         port=4455,
         password="",
         scene_item_name="Overlay",

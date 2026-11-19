@@ -37,7 +37,7 @@ _UNSET = object()
 
 def make_config(**overrides):
     values = {
-        "host": "10.0.0.2",
+        "host": "192.0.2.2",
         "port": 4455,
         "password": "",
         "scene_item_name": OVERLAY,

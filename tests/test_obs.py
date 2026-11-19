@@ -40,7 +40,7 @@ def test_request_timeout_is_shorter_than_the_connect_timeout():
 
 def test_connect_holds_the_long_timeout_then_shortens_the_socket(monkeypatch):
     monkeypatch.setattr(obs, "ReqClient", FakeReqClient)
-    client = connect_obs("10.0.0.2", 4455, "pw")
+    client = connect_obs("192.0.2.2", 4455, "pw")
     assert client.timeout == CONNECT_TIMEOUT
     assert client.base_client.ws.timeout == REQUEST_TIMEOUT
 
@@ -56,7 +56,7 @@ def test_shortening_the_socket_is_best_effort(monkeypatch):
             self.base_client.ws.settimeout = refuse
 
     monkeypatch.setattr(obs, "ReqClient", Grumpy)
-    assert connect_obs("10.0.0.2", 4455, "pw") is not None
+    assert connect_obs("192.0.2.2", 4455, "pw") is not None
 
 
 class RaisingClient:
@@ -124,7 +124,7 @@ def test_connect_failures_map_to_maphide_errors(monkeypatch, raised, expected):
 
     monkeypatch.setattr(obs, "ReqClient", boom)
     with pytest.raises(expected):
-        connect_obs("10.0.0.2", 4455, "pw")
+        connect_obs("192.0.2.2", 4455, "pw")
 
 
 # --- the one-off connection check ---------------------------------------------
@@ -139,7 +139,7 @@ def checked_obs():
 def test_a_connection_check_counts_the_scenes_carrying_the_source():
     fake = checked_obs()
 
-    result = obs.check_connection("10.0.0.2", 4455, "", "Overlay", connect=lambda *_: fake)
+    result = obs.check_connection("192.0.2.2", 4455, "", "Overlay", connect=lambda *_: fake)
 
     assert result == ConnectionCheck(ok=True, source_scene_count=2)
     assert fake.disconnected is True
@@ -148,7 +148,7 @@ def test_a_connection_check_counts_the_scenes_carrying_the_source():
 def test_a_connection_check_without_a_source_name_only_connects():
     fake = checked_obs()
 
-    result = obs.check_connection("10.0.0.2", 4455, "", "", connect=lambda *_: fake)
+    result = obs.check_connection("192.0.2.2", 4455, "", "", connect=lambda *_: fake)
 
     assert result == ConnectionCheck(ok=True)
     assert fake.calls == []
@@ -159,7 +159,7 @@ def test_a_failed_connection_check_gives_the_reason():
     def refuse(*_args):
         raise ObsAuthError(obs.OBS_BAD_PASSWORD)
 
-    result = obs.check_connection("10.0.0.2", 4455, "wrong", "Overlay", connect=refuse)
+    result = obs.check_connection("192.0.2.2", 4455, "wrong", "Overlay", connect=refuse)
 
     assert result == ConnectionCheck(ok=False, message=obs.OBS_BAD_PASSWORD)
 
@@ -168,7 +168,7 @@ def test_a_check_that_fails_after_connecting_still_disconnects():
     fake = checked_obs()
     fake.rule("GetSceneList", raises=OBSSDKTimeoutError("timed out"))
 
-    result = obs.check_connection("10.0.0.2", 4455, "", "Overlay", connect=lambda *_: fake)
+    result = obs.check_connection("192.0.2.2", 4455, "", "Overlay", connect=lambda *_: fake)
 
     assert result == ConnectionCheck(ok=False, message=obs.OBS_LINK_LOST)
     assert fake.disconnected is True

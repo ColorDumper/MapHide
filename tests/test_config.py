@@ -23,7 +23,7 @@ from maphide.config import (
 )
 
 BASE = {
-    "host": "10.0.0.2",
+    "host": "192.0.2.2",
     "port": 4455,
     "password": "secret",
     "scene_item_name": "Overlay",
@@ -129,7 +129,7 @@ def test_a_config_file_holding_null_is_unreadable(tmp_path):
 def test_save_then_load_round_trips(tmp_path):
     path = tmp_path / "config.json"
     cfg = AppConfig.from_dict(
-        {**default_config().to_dict(), "host": "10.0.0.5", "scene_item_name": "Map"}
+        {**default_config().to_dict(), "host": "192.0.2.5", "scene_item_name": "Map"}
     )
     save_config(cfg, path)
     assert load_config(path) == cfg
@@ -137,7 +137,7 @@ def test_save_then_load_round_trips(tmp_path):
 
 def test_a_save_cut_short_leaves_the_old_settings_intact(tmp_path, monkeypatch):
     path = tmp_path / "config.json"
-    old = AppConfig.from_dict({**default_config().to_dict(), "host": "10.0.0.5"})
+    old = AppConfig.from_dict({**default_config().to_dict(), "host": "192.0.2.5"})
     save_config(old, path)
 
     def dump_then_fail(data, file, **_options):
@@ -145,7 +145,7 @@ def test_a_save_cut_short_leaves_the_old_settings_intact(tmp_path, monkeypatch):
         raise OSError("disk full")
 
     monkeypatch.setattr(config_module.json, "dump", dump_then_fail)
-    new = AppConfig.from_dict({**default_config().to_dict(), "host": "192.168.1.9"})
+    new = AppConfig.from_dict({**default_config().to_dict(), "host": "198.51.100.9"})
 
     with pytest.raises(OSError):
         save_config(new, path)
@@ -160,7 +160,7 @@ def test_a_save_waits_out_something_holding_the_file_for_a_moment(tmp_path):
     # scanner or backup tool reading the file would.
     path = tmp_path / "config.json"
     save_config(default_config(), path)
-    new = AppConfig.from_dict({**default_config().to_dict(), "host": "192.168.1.9"})
+    new = AppConfig.from_dict({**default_config().to_dict(), "host": "198.51.100.9"})
     held = open(path, "rb")  # noqa: SIM115 - closed by the timer below
     release = threading.Timer(0.2, held.close)
     release.start()
@@ -176,10 +176,10 @@ def test_a_save_waits_out_something_holding_the_file_for_a_moment(tmp_path):
 
 def test_a_file_held_for_good_still_fails_and_keeps_the_old_settings(tmp_path, monkeypatch):
     path = tmp_path / "config.json"
-    old = AppConfig.from_dict({**default_config().to_dict(), "host": "10.0.0.5"})
+    old = AppConfig.from_dict({**default_config().to_dict(), "host": "192.0.2.5"})
     save_config(old, path)
     monkeypatch.setattr(config_module, "SAVE_RETRY_SECONDS", 0.01)
-    new = AppConfig.from_dict({**default_config().to_dict(), "host": "192.168.1.9"})
+    new = AppConfig.from_dict({**default_config().to_dict(), "host": "198.51.100.9"})
 
     with open(path, "rb"), pytest.raises(PermissionError):
         save_config(new, path)
@@ -237,7 +237,7 @@ def test_to_loggable_dict_excludes_the_password_and_the_network_address():
 # --- building settings from what a form holds ---
 
 FORM = {
-    "host": " 10.0.0.2 ",
+    "host": " 192.0.2.2 ",
     "port": " 4455 ",
     "password": " pass ",
     "scene_item_name": " Overlay ",
@@ -255,7 +255,7 @@ def test_a_filled_in_form_becomes_settings():
     cfg = config_from_form(**FORM)
 
     assert cfg == AppConfig(
-        host="10.0.0.2",
+        host="192.0.2.2",
         port=4455,
         password=" pass ",
         scene_item_name="Overlay",
@@ -368,7 +368,7 @@ def test_checking_for_updates_is_on_unless_turned_off(tmp_path):
         ({"auto_connect": True}, False),
         ({"check_updates": False}, False),
         ({"hotkey": "M"}, True),
-        ({"host": "10.0.0.9"}, True),
+        ({"host": "192.0.2.9"}, True),
         ({"log_enabled": True}, True),
         ({"auto_reconnect": False}, True),
     ],

@@ -41,7 +41,7 @@ def at(ms):
 
 def hold_config(hide_delay_ms=120):
     return AppConfig(
-        host="10.0.0.2",
+        host="192.0.2.2",
         port=4455,
         password="",
         scene_item_name="Overlay",
@@ -295,7 +295,7 @@ def test_stopped_is_queued_before_running_flips_false(monkeypatch):
     monkeypatch.setattr(overlay_module, "connect_obs", fail_fast)
 
     cfg = AppConfig(
-        host="10.0.0.2",
+        host="192.0.2.2",
         port=4455,
         password="wrong",
         scene_item_name="Overlay",
@@ -325,7 +325,7 @@ def test_a_failed_debug_log_start_is_reported_as_an_event(monkeypatch):
     service = MapHideService()
     service._running = True
     cfg = AppConfig(
-        host="10.0.0.2",
+        host="192.0.2.2",
         port=4455,
         password="wrong",
         scene_item_name="Overlay",
@@ -359,7 +359,7 @@ def test_the_active_config_is_logged_at_startup_without_the_password_or_address(
     service = MapHideService()
     service._running = True
     cfg = AppConfig(
-        host="10.0.0.2",
+        host="192.0.2.2",
         port=4455,
         password="super secret",
         scene_item_name="Overlay",
@@ -375,7 +375,7 @@ def test_the_active_config_is_logged_at_startup_without_the_password_or_address(
     contents = (tmp_path / "maphide-debug.log").read_text(encoding="utf-8")
     assert "Overlay" in contents
     assert "hotkey=M" in contents
-    assert "10.0.0.2" not in contents
+    assert "192.0.2.2" not in contents
     assert "super secret" not in contents
 
 

@@ -221,7 +221,7 @@ def config_from_form(
     hide_hotkey = str(hide_hotkey).strip().upper()
 
     if not scene_item_name:
-        raise ValueError("Overlay Source is required.")
+        raise ValueError("OBS Source Name is required.")
     if not is_valid_show_hotkey(hotkey):
         raise ValueError(SHOW_KEY_HELP)
     if toggle_mode and not is_valid_hide_hotkey(hide_hotkey):

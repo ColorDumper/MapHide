@@ -2,6 +2,14 @@
 
 All notable changes to MapHide are documented here.
 
+## Unreleased
+
+### Fixed
+
+- Fixed Update saying the download didn't finish on some PCs, often ones with a fairly new Windows install.
+- Fixed update checks telling you to check your internet connection when the real problem was your PC's date and time, or GitHub's certificate.
+- Fixed the debug log leaving out why an update check or download failed.
+
 ## [v0.3.0](https://github.com/ColorDumper/MapHide/compare/v0.2.6...v0.3.0) - 2026-11-13
 
 ### Added

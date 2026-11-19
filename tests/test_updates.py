@@ -3,15 +3,18 @@
 import hashlib
 import io
 import json
+import logging
+import ssl
 import threading
 import time
 import urllib.error
 import urllib.request
 
 import pytest
+import truststore
 from test_controller import ManualScheduler
 
-from maphide import updates
+from maphide import logs, updates
 from maphide.updates import (
     AVAILABLE,
     CHECKING,
@@ -81,6 +84,19 @@ def opener_raising(exc):
         raise exc
 
     return opener
+
+
+# Windows' code for a certificate outside its dates, and OpenSSL's for "not
+# yet valid" and "expired". Each usually means the PC's clock is wrong.
+CLOCK_CODES = [0x800B0101, 9, 10]
+# Windows' "untrusted root", and OpenSSL's "unable to get local issuer".
+OTHER_CERTIFICATE_CODES = [0x800B0109, 20]
+
+
+def certificate_refused(code, wrapped=True):
+    error = ssl.SSLCertVerificationError("certificate refused")
+    error.verify_code = code
+    return urllib.error.URLError(error) if wrapped else error
 
 
 # Versions.
@@ -165,6 +181,24 @@ def test_a_garbled_reply_is_explained():
         fetch_latest(opener_returning(b"<html>"))
 
 
+@pytest.mark.parametrize("code", CLOCK_CODES)
+@pytest.mark.parametrize("wrapped", [True, False])
+def test_a_check_refused_over_the_clock_says_to_fix_the_clock(code, wrapped):
+    with pytest.raises(UpdateError) as caught:
+        fetch_latest(opener_raising(certificate_refused(code, wrapped)))
+
+    assert str(caught.value) == updates.CLOCK_WRONG
+
+
+@pytest.mark.parametrize("code", OTHER_CERTIFICATE_CODES)
+@pytest.mark.parametrize("wrapped", [True, False])
+def test_a_check_refused_over_a_certificate_says_so(code, wrapped):
+    with pytest.raises(UpdateError) as caught:
+        fetch_latest(opener_raising(certificate_refused(code, wrapped)))
+
+    assert str(caught.value) == updates.CERTIFICATE_REFUSED
+
+
 # Downloading.
 
 
@@ -194,6 +228,21 @@ def test_a_broken_download_is_thrown_away(tmp_path):
     with pytest.raises(UpdateError, match="didn't finish"):
         download_setup(release, tmp_path, opener=opener_raising(ConnectionResetError()))
 
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [(code, updates.CLOCK_WRONG) for code in CLOCK_CODES]
+    + [(code, updates.CERTIFICATE_REFUSED) for code in OTHER_CERTIFICATE_CODES],
+)
+def test_a_download_refused_over_a_certificate_says_why(tmp_path, code, message):
+    release = release_from_json(release_json())
+
+    with pytest.raises(UpdateError) as caught:
+        download_setup(release, tmp_path, opener=opener_raising(certificate_refused(code)))
+
+    assert str(caught.value) == message
     assert list(tmp_path.iterdir()) == []
 
 
@@ -236,6 +285,16 @@ def test_maphide_goes_online_only_through_the_https_only_redirects():
     handlers = updates.OPENER.handlers
 
     assert any(isinstance(handler, updates.HttpsOnlyRedirects) for handler in handlers)
+
+
+def test_windows_checks_githubs_certificates():
+    # So Windows fetches a trusted root it doesn't have yet, which GitHub's
+    # download server may need, instead of MapHide refusing the download.
+    [https] = [h for h in updates.OPENER.handlers if isinstance(h, urllib.request.HTTPSHandler)]
+
+    assert isinstance(https._context, truststore.SSLContext)
+    assert https._context.check_hostname
+    assert https._context.verify_mode == ssl.CERT_REQUIRED
 
 
 def test_the_setup_file_is_checked_again_just_before_it_runs(tmp_path):
@@ -383,12 +442,14 @@ def test_only_an_installed_github_copy_installs_updates(tmp_path):
 
 
 class Steps:
-    def __init__(self, release=None, error=None, can_install=True):
+    def __init__(self, release=None, error=None, can_install=True, cause=None):
         self.schedule = ManualScheduler()
         self.changes = 0
         self.downloads = []
         self.launched = []
         self.download_error = None
+        # What went wrong underneath, as fetch and download pass it on.
+        self.cause = cause
         self.verify_error = None
         self.verified = []
         self.cleaned = []
@@ -417,12 +478,12 @@ class Steps:
 
     def _fetch(self):
         if self.error:
-            raise UpdateError(self.error)
+            raise UpdateError(self.error) from self.cause
         return self.release
 
     def _download(self, release, folder, progress):
         if self.download_error:
-            raise UpdateError(self.download_error)
+            raise UpdateError(self.download_error) from self.cause
         self.downloads.append((release.version, folder))
         progress(1.0)
         return "setup.exe"
@@ -491,6 +552,60 @@ def test_a_failed_check_says_why():
     s.finish()
 
     assert (s.updater.state, s.updater.message) == (FAILED, updates.NO_CONNECTION)
+
+
+@pytest.fixture
+def debug_log():
+    """What MapHide writes to its debug log, as if it were turned on."""
+    lines = []
+    handler = logging.Handler()
+    handler.emit = lambda record: lines.append(record.getMessage())
+    level = logs.logger.level
+    logs.logger.addHandler(handler)
+    logs.logger.setLevel(logging.INFO)
+    yield lines
+    logs.logger.removeHandler(handler)
+    logs.logger.setLevel(level)
+
+
+def test_a_failed_check_writes_the_real_error_to_the_debug_log(debug_log):
+    s = Steps(error=updates.CERTIFICATE_REFUSED, cause=certificate_refused(0x800B0109))
+
+    s.updater.check(quiet=True)
+    s.finish()
+
+    [line] = debug_log
+    assert line.startswith("Update check failed: URLError")
+    assert "certificate refused" in line
+
+
+def test_a_failed_download_writes_the_real_error_to_the_debug_log(debug_log):
+    s = Steps(cause=ConnectionResetError(10054, "connection reset"))
+    s.updater.check()
+    s.finish()
+    s.download_error = updates.DOWNLOAD_FAILED
+
+    s.updater.install(on_started=lambda: None)
+    s.finish()
+
+    [line] = debug_log
+    assert line.startswith("Update download failed: ConnectionResetError")
+    assert "connection reset" in line
+
+
+def test_a_bug_in_the_updater_is_written_to_the_debug_log(debug_log):
+    s = Steps()
+
+    def broken():
+        raise RuntimeError("a bug")
+
+    s.updater._fetch = broken
+    s.updater.check()
+    s.finish()
+
+    assert s.updater.message == updates.CHECK_FAILED
+    [line] = debug_log
+    assert line.startswith("Update check failed: RuntimeError: a bug")
 
 
 def test_a_quiet_check_that_fails_says_nothing():

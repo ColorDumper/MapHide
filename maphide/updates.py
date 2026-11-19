@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+import truststore
+
+from .logs import describe_exception, logger
 from .version import CHANNEL, CHANNEL_GITHUB, CHANNEL_SOURCE, VERSION
 
 REPO = "ColorDumper/MapHide"
@@ -46,6 +50,12 @@ DOWNLOAD_FAILED = "The download didn't finish. Try again."
 DOWNLOAD_DAMAGED = "The download was damaged. Try again."
 INSTALLER_DIDNT_START = "The installer couldn't start."
 CHECK_FAILED = "Couldn't check for updates."
+CLOCK_WRONG = "Your PC's date and time look wrong. Fix them in Windows settings and try again."
+CERTIFICATE_REFUSED = "Windows couldn't confirm the connection to GitHub is safe. Try again later."
+
+# Certificate errors that usually mean the PC's clock is wrong: Windows'
+# "outside its validity period", and OpenSSL's "not yet valid" and "expired".
+CLOCK_ERROR_CODES = frozenset({0x800B0101, 9, 10})
 
 # Updater states.
 IDLE = "idle"
@@ -115,8 +125,26 @@ class HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _https_context():
+    """Windows checks GitHub's certificates, as it does for a browser. It
+    then fetches a trusted root it doesn't have yet, which a fairly new
+    Windows may be missing, instead of the connection being refused."""
+    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+
 # How MapHide goes online: https only, redirects included.
-OPENER = urllib.request.build_opener(HttpsOnlyRedirects())
+OPENER = urllib.request.build_opener(
+    urllib.request.HTTPSHandler(context=_https_context()), HttpsOnlyRedirects()
+)
+
+
+def _certificate_message(exc):
+    """What to tell the user when `exc` is a certificate being refused, or
+    None when it's something else."""
+    reason = getattr(exc, "reason", exc)
+    if not isinstance(reason, ssl.SSLCertVerificationError):
+        return None
+    return CLOCK_WRONG if reason.verify_code in CLOCK_ERROR_CODES else CERTIFICATE_REFUSED
 
 
 def _request(url):
@@ -140,9 +168,9 @@ def fetch_latest(opener=OPENER.open):
         # too many checks from this network in the last hour.
         raise UpdateError(GITHUB_UNAVAILABLE) from exc
     except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-        raise UpdateError(NO_CONNECTION) from exc
+        raise UpdateError(_certificate_message(exc) or NO_CONNECTION) from exc
     except (ValueError, OSError) as exc:
-        raise UpdateError(UNEXPECTED_REPLY) from exc
+        raise UpdateError(_certificate_message(exc) or UNEXPECTED_REPLY) from exc
     return release_from_json(data)
 
 
@@ -178,7 +206,7 @@ def download_setup(release, folder, progress=None, opener=OPENER.open):
         raise
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         partial.unlink(missing_ok=True)
-        raise UpdateError(DOWNLOAD_FAILED) from exc
+        raise UpdateError(_certificate_message(exc) or DOWNLOAD_FAILED) from exc
     return target
 
 
@@ -333,18 +361,24 @@ class Updater:
         self.message = message
         self._on_change()
 
-    def _run(self, work, on_done):
+    def _run(self, step, work, on_done):
         """Run `work()` off the window's thread, then `on_done(result,
-        error)` back on it."""
+        error)` back on it. `step` names it in the debug log."""
         outcome = []
 
         def run():
             try:
                 outcome.append((work(), None))
             except UpdateError as exc:
+                # The window shows the plain message; the debug log gets
+                # what actually went wrong.
+                logger.warning(
+                    "Update %s failed: %s", step, describe_exception(exc.__cause__ or exc)
+                )
                 outcome.append((None, str(exc)))
-            except Exception:
+            except Exception as exc:
                 # A bug here must still end the wait in the window.
+                logger.error("Update %s failed: %s", step, describe_exception(exc))
                 outcome.append((None, CHECK_FAILED))
 
         def wait():
@@ -385,7 +419,7 @@ class Updater:
             self._clean(self._folder)
             return self._fetch()
 
-        self._run(work, done)
+        self._run("check", work, done)
         return True
 
     def clear_latest(self):
@@ -418,5 +452,5 @@ class Updater:
 
         self.progress = 0.0
         self._set(DOWNLOADING)
-        self._run(work, done)
+        self._run("download", work, done)
         return True

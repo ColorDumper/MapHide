@@ -52,7 +52,7 @@ MapHide covering the map in Rust, with OBS on the streaming PC and the game on t
 
 For the usual setup: OBS on a streaming PC, your game on a gaming PC, both on the same network.
 
-1. **On the streaming PC**, open OBS, go to `Tools > WebSocket Server Settings`, turn on the server and note the port (usually `4455`) and the password.
+1. **On the streaming PC**, open OBS, go to `Tools > WebSocket Server Settings`, turn on the server and note the port (default `4455`) and the password.
 2. **On the streaming PC**, add the source that covers your map (an image, for example) to every scene you stream from, and give it a name you can type exactly, such as `MapHide Overlay`.
 3. **On the gaming PC**, download `MapHide-vX.Y.Z-setup.exe` from the [latest release](https://github.com/ColorDumper/MapHide/releases/latest) and run it. If Windows says it protected your PC, click More info, then Run anyway.
 4. Open MapHide, click Settings and enter the streaming PC's local IP address, the port, the password and the source name. Click Test Link to check them, then Save.
@@ -78,7 +78,7 @@ You need:
 1. Open OBS Studio.
 2. Go to `Tools > WebSocket Server Settings`.
 3. Turn on the WebSocket server.
-4. Note the server port. It is usually `4455`.
+4. Note the server port (default `4455`).
 5. Set a password, ideally one you don't use anywhere else.
 6. Click Apply.
 
@@ -95,7 +95,7 @@ If you need a cover image, you can make your own or use a community one. One sou
 
 1. Open Command Prompt or PowerShell.
 2. Run `ipconfig`.
-3. Note the IPv4 address of the network adapter you're using, such as `192.0.2.10`.
+3. Note the IPv4 address of the network adapter you're using, such as `192.168.0.10`.
 
 That address is what MapHide connects to.
 
@@ -105,7 +105,7 @@ That address is what MapHide connects to.
 2. Open MapHide from the Start menu and click Settings.
 3. Enter the streaming PC's OBS details:
    - **Host**: the streaming PC's local IP address
-   - **Port**: the OBS WebSocket port, usually `4455`
+   - **Port**: the OBS WebSocket port (default `4455`)
    - **Password**: the OBS WebSocket password
    - **OBS Source Name**: the exact name of the cover source in OBS
 4. Click Test Link. MapHide connects to OBS once and tells you how many scenes have your source.

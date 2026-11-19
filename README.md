@@ -155,6 +155,8 @@ MapHide checks for a new version each time it opens (turn this off with Check fo
 
 **Coming from v0.2.6 or older** (the zip): close the old MapHide, then run the setup file once. Your settings carry over, and you can delete the old folder afterwards.
 
+**Rather not install it?** Each release also has `MapHide-vX.Y.Z-win64.zip`: unzip it anywhere and run `MapHide.exe`. This copy doesn't update itself. When a new version is out, Get it under About in Settings opens the download page.
+
 To remove MapHide, use Settings > Apps > Installed apps in Windows. It asks whether to keep your settings.
 
 What changed in each version is in the [changelog](CHANGELOG.md).

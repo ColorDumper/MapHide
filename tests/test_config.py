@@ -274,7 +274,7 @@ def test_a_filled_in_form_becomes_settings():
     [
         ("host", "  ", "OBS Host is required."),
         ("port", "", "OBS Port is required."),
-        ("scene_item_name", "", "Overlay Source is required."),
+        ("scene_item_name", "", "OBS Source Name is required."),
         ("hotkey", "ESC", "Show key supports A-Z."),
         ("port", "44a5", "OBS Port must be a number."),
         ("port", "0", "OBS Port must be between 1 and 65535."),

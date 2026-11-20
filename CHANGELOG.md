@@ -2,6 +2,16 @@
 
 All notable changes to MapHide are documented here.
 
+## [v0.3.1](https://github.com/ColorDumper/MapHide/compare/v0.3.0...v0.3.1) - 2026-11-19
+
+### Fixed
+
+- Fixed Update saying the download didn't finish on some PCs, often ones with a fairly new Windows install. ([3d1f422](https://github.com/ColorDumper/MapHide/commit/3d1f422cd326f6cf711792151fac1e69bca92c0d))
+- Fixed update checks telling you to check your internet connection when the real problem was your PC's date and time, or GitHub's certificate. ([3d1f422](https://github.com/ColorDumper/MapHide/commit/3d1f422cd326f6cf711792151fac1e69bca92c0d))
+- Fixed the debug log leaving out why an update check or download failed. ([3d1f422](https://github.com/ColorDumper/MapHide/commit/3d1f422cd326f6cf711792151fac1e69bca92c0d))
+- Fixed the message for an empty OBS Source Name in Settings naming a field that doesn't exist. ([2f81494](https://github.com/ColorDumper/MapHide/commit/2f814943f7fc5de2a29412248d0073461a6de91f))
+- Fixed settings being saved in MapHide's own folder, instead of your AppData folder, on a PC where Windows doesn't say where AppData is. ([3c54deb](https://github.com/ColorDumper/MapHide/commit/3c54deba75e8cdf574034c2876dbad9bf8d123a2))
+
 ## [v0.3.0](https://github.com/ColorDumper/MapHide/compare/v0.2.6...v0.3.0) - 2026-11-13
 
 ### Added
